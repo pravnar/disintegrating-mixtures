@@ -30,6 +30,10 @@ check :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> Base a -> IO ()
 check prog base = putStrLn $ format (title prog base t) (disintegrate prog base t)
     where t = Var obs
 
+constraintsOn :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> IO ()
+constraintsOn prog = putStrLn $ format (title prog b t) (disintegrate prog b t)
+    where (b,t) = (fst (base 0) [], Var obs)
+
 infer :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> IO ()
 infer prog = let (b,t)  = (fst (base 0) [], Var obs)
                  anss   = disintegrate prog b t
@@ -84,12 +88,25 @@ gaussMix = Do (mu1 :<~ stdNormal)
                                    (Pair (Var mu1) (Var mu2))))))
     where (mu1, mu2, x) = (V "mu1", V "mu2", V "x")
 
+helloWorld :: Model 'HReal 'HReal
+helloWorld = do_ [ mu :<~ stdNormal
+                 , x  :<~ Normal (Var mu) (Real 1) ]                      
+                 (Dirac (Pair (Var x) (Var mu)))
+    where (mu, x) = (V "mu", V "x")
+              
+
 helloWorld2D :: Model ('HPair 'HReal 'HReal) 'HReal
 helloWorld2D = do_ [ mu :<~ stdNormal
                    , x  :<~ Normal (Var mu) (Real 1)
                    , y  :<~ Normal (Var mu) (Real 1) ]
                    (Dirac (Pair (Pair (Var x) (Var y)) (Var mu)))
     where (mu, x, y) = (V "mu", V "x", V "y")
+
+density2D :: Model ('HPair 'HReal 'HReal) 'HUnit
+density2D = do_ [ x  :<~ Normal (Real 0) (Real 1)
+                , y  :<~ Normal (Var x)  (Real 1) ]
+                (Dirac (Pair (Pair (Var y) (Var x)) Unit))
+    where (x, y) = (V "x", V "y")
 
 unclampedGPA :: Model 'HReal ('HEither 'HUnit 'HUnit)
 unclampedGPA = MPlus (Do (x :<~ Normal (Real 2) (Real 3))
@@ -101,7 +118,7 @@ unclampedGPA = MPlus (Do (x :<~ Normal (Real 2) (Real 3))
 -- | Examples that produce base-constraints containing term-language variables
 -------------------------------------------------------------------------------
 lubAndMPlus :: Model 'HReal 'HUnit
-lubAndMPlus = do_ [ x  :<~ stdNormal
+lubAndMPlus = do_ [ x :<~ stdNormal
                   , y :<~ MPlus (Normal (Var x) (Real 1))
                                 (Dirac (Real 0)) ]
              (Dirac (Pair (Add (Var x) (Var y)) Unit))
@@ -112,6 +129,11 @@ addAdd = do_ [ x :<~ stdNormal
              , y :<~ stdNormal ]
          (Dirac (Pair (Add (Var y) (Add (Var x) (Var x))) Unit))
     where (x,y) = (V "x", V "y")
+
+plus :: Model 'HReal 'HUnit
+plus = Do (x :<~ stdNormal)
+          (Dirac (Pair (Add (Var x) (Var x)) Unit))
+    where x = (V "x")
 -------------------------------------------------------------------------------
 
 discrete2 :: Model 'HReal 'HUnit
@@ -138,6 +160,12 @@ clampNorm = Do (n :<~ Normal (Real 2) (Real 3))
                     (Dirac (Pair (Var n) (Var n))))
     where n = V "n"
 
+truncatedNorm :: Model 'HReal 'HReal
+truncatedNorm = do_ [ n :<~ Normal (Real 0) (Real 1)
+                    , observe (Less (Var n) (Real 0)) ]
+                (Dirac (Pair (Var n) (Var n)))
+    where n = V "n"
+
 sqrNorm :: Model 'HReal 'HUnit
 sqrNorm = Do (n :<~ Normal (Sqrt (Real 2.6)) (Sqrt (Real 0.1)))
              (Dirac (Pair (Square (Var n)) Unit))
@@ -156,18 +184,40 @@ singleSiteProposal = do_ [ x :<~ stdNormal
                          (Dirac (Pair (Pair (Pair (Var x) (Var y))
                                             (Var p))
                                       Unit))
-    where (x,y,x',y',p) = (V "x", V "y", V "x'", V "y'", V "p")
+    where (x,y,x',y',p) = (V "x", V "y", V "x'", V "y'", V "p")                          
 
 singleSiteBase :: Base ('HPair ('HPair 'HReal 'HReal) ('HPair 'HReal 'HReal))
 singleSiteBase = Bindx (Bindx Lebesgue_ (const Lebesgue_))
                        (\p -> Bindx (Mixture True [frst p])
                                     (const $ Mixture True [scnd p]))
 
+singleSiteProposalSwap :: Model ('HPair ('HPair 'HReal 'HReal) ('HPair 'HReal 'HReal)) 'HUnit
+singleSiteProposalSwap = do_ [ x :<~ stdNormal
+                             , y :<~ stdNormal
+                             , p :<~ MPlus (Do (x' :<~ Normal (Var x) (Real 0.1))
+                                               (Dirac (Pair (Var x' :: Term 'HReal) (Var y :: Term 'HReal))))
+                                           (Do (y' :<~ Normal (Var y) (Real 0.1))
+                                               (Dirac (Pair (Var x) (Var y')))) ]
+                             (Dirac (Pair (Pair (Var p)
+                                                (Pair (Var x) (Var y)))
+                                          Unit))
+    where (x,y,x',y',p) = (V "x", V "y", V "x'", V "y'", V "p")
+
+-- singleSiteBaseSwap :: Base ('HPair ('HPair 'HReal 'HReal) ('HPair 'HReal 'HReal))
+-- singleSiteBaseSwap = Bindx 
+
 proposal1 :: Model ('HPair 'HReal 'HReal) 'HUnit
 proposal1 = do_ [ x :<~ stdNormal
                 , y :<~ MPlus (Normal (Var x) (Real 0.1))
                               (Dirac (Var x)) ]
             (Dirac (Pair (Pair (Var x) (Var y)) Unit))
+    where (x,y) = (V "x", V "y")
+
+proposal1Swap :: Model ('HPair 'HReal 'HReal) 'HUnit
+proposal1Swap = do_ [ x :<~ stdNormal
+                    , y :<~ MPlus (Normal (Var x) (Real 0.1))
+                                  (Dirac (Var x)) ]
+                (Dirac (Pair (Pair (Var y) (Var x)) Unit))
     where (x,y) = (V "x", V "y")
 
 base1 :: Base ('HPair 'HReal 'HReal)
@@ -226,7 +276,20 @@ burglarAlarm = do_ [ b :<~ bern_ (Real 0.0001)
 
 boolBase :: Base ('HEither 'HUnit 'HUnit)
 boolBase = Either (Dirac_ Unit) (Dirac_ Unit)
-                  
+
+
+diracPlus :: Model 'HReal 'HUnit
+diracPlus = Do (x :<~ (Dirac (Real 5)))
+               (Dirac (Pair (Add (Var x) (Var x)) Unit))
+    where x = V "x"
+
+twoDice :: Model 'HReal 'HReal
+twoDice = do_ [ x :<~ msum_ [Dirac (Real 1), Dirac (Real 2), Dirac (Real 3)]
+              , y :<~ msum_ [Dirac (Real 2), Dirac (Real 3), Dirac (Real 4)]
+              , d :<~ bern_ (Real 0.5)
+              , r :<~ Dirac (If (Var d) (Var x :: Term 'HReal) (Var y)) ]
+          (Dirac (Pair (Var r) (Var d)))
+    where (x,y,r,d) = (V "x", V "y", V "r", V "d")
 
 -- | Testing equality on Hakaru terms
 ----------------------------------------------------------------------

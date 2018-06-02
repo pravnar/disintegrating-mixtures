@@ -491,7 +491,7 @@ bplus :: Base 'HReal -> Base 'HReal -> Base 'HReal
 bplus Lebesgue_      Lebesgue_       = Mixture True []
 bplus Lebesgue_      (Dirac_ t)      = Mixture True [t]
 bplus (Dirac_ t)     Lebesgue_       = Mixture True [t]
-bplus (Dirac_ s)     (Dirac_ t)      = Mixture True [s,t]
+bplus (Dirac_ s)     (Dirac_ t)      = Mixture False [s,t]
 bplus Lebesgue_      (Mixture _ ts)  = Mixture True ts
 bplus (Mixture _ ts) Lebesgue_       = Mixture True ts
 bplus (Dirac_ t)     (Mixture b ts)  = Mixture b (t:ts)
@@ -776,3 +776,6 @@ diracUnit gs = do_ gs (Dirac Unit)
 
 bindUnit :: Term ('HMeasure 'HUnit) -> Guard Var
 bindUnit m = V "_" :<~ m                     
+
+   
+                                                           
