@@ -10,7 +10,7 @@ module Helpers where
 import Syntax
 import Pretty    
 import Control.Monad.State
-import Data.List (find)    
+import Data.List (find, nub)
 import Data.Maybe (catMaybes, fromMaybe, fromJust)
 import Data.Set as S (empty)
 import Unsafe.Coerce (unsafeCoerce)
@@ -184,6 +184,9 @@ jmTermEq e e' = case jmEq (typeOf e) (typeOf e') of
 
 instance Eq InScope where
     IS t == IS t' = jmTermEq t t'
+
+instance Eq (Term a) where
+    (==) = jmTermEq
  
 -- | For the disintegration monad
 ----------------------------------------------------------------------
@@ -491,12 +494,12 @@ bplus :: Base 'HReal -> Base 'HReal -> Base 'HReal
 bplus Lebesgue_      Lebesgue_       = Mixture True []
 bplus Lebesgue_      (Dirac_ t)      = Mixture True [t]
 bplus (Dirac_ t)     Lebesgue_       = Mixture True [t]
-bplus (Dirac_ s)     (Dirac_ t)      = Mixture False [s,t]
+bplus (Dirac_ s)     (Dirac_ t)      = Mixture False (nub [s,t])
 bplus Lebesgue_      (Mixture _ ts)  = Mixture True ts
 bplus (Mixture _ ts) Lebesgue_       = Mixture True ts
-bplus (Dirac_ t)     (Mixture b ts)  = Mixture b (t:ts)
-bplus (Mixture b ts) (Dirac_ t)      = Mixture b (t:ts)
-bplus (Mixture b ss) (Mixture b' ts) = Mixture (b || b') (ss++ts)
+bplus (Dirac_ t)     (Mixture b ts)  = Mixture b (nub $ t:ts)
+bplus (Mixture b ts) (Dirac_ t)      = Mixture b (nub $ t:ts)
+bplus (Mixture b ss) (Mixture b' ts) = Mixture (b || b') (nub $ ss++ts)
 bplus _            b@(Error_ _)      = b
 bplus b@(Error_ _) _                 = b
 bplus b b' = Error_ $ "Trying to add " ++ show b ++ " and " ++ show b'
@@ -775,7 +778,4 @@ diracUnit :: [Guard Var] -> Term ('HMeasure 'HUnit)
 diracUnit gs = do_ gs (Dirac Unit)
 
 bindUnit :: Term ('HMeasure 'HUnit) -> Guard Var
-bindUnit m = V "_" :<~ m                     
-
-   
-                                                           
+bindUnit m = V "_" :<~ m
