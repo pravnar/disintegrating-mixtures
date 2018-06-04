@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DataKinds, GADTs #-}
 
 module Tests where
 
@@ -34,13 +34,17 @@ constraintsOn :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b))
 constraintsOn prog = putStrLn $ format (title prog b t) (disintegrate prog b t)
     where (b,t) = (fst (base 0) [], Var obs)
 
-infer :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> IO ()
+infer :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> Trace (Term ('HMeasure b), Base a)
 infer prog = let (b,t)  = (fst (base 0) [], Var obs)
                  anss   = disintegrate prog b t
                  initState e = (Names 0 (varsIn e), [])
                  sat (e,cs) = (e, evalState (mapM solve cs) (initState e))
                  inferred = fmap (second (findBase b . group) . sat) anss
-             in putStrLn $ format (title prog b t) inferred
+             in inferred
+
+printInferred :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> IO ()
+printInferred prog = let (b,t)  = (fst (base 0) [], Var obs)
+                     in putStrLn $ format (title prog b t) (infer prog)
 
 -- | Draw a graph of the disintegration trace and save it in a pdf file
 viz :: (Sing a, Sing b) => FilePath -> Term ('HMeasure ('HPair a b)) -> Base a -> IO ()
@@ -93,6 +97,9 @@ helloWorld = do_ [ mu :<~ stdNormal
                  , x  :<~ Normal (Var mu) (Real 1) ]                      
                  (Dirac (Pair (Var x) (Var mu)))
     where (mu, x) = (V "mu", V "x")
+
+helloProposal :: Term 'HReal -> Term ('HMeasure 'HReal)
+helloProposal x = Normal x (Real 0.5)
               
 
 helloWorld2D :: Model ('HPair 'HReal 'HReal) 'HReal
@@ -174,6 +181,72 @@ sqrNorm = Do (n :<~ Normal (Sqrt (Real 2.6)) (Sqrt (Real 0.1)))
 eitherTest :: Model ('HEither 'HUnit 'HUnit) 'HUnit
 eitherTest = Dirac (Pair (Inl Unit) Unit)
 
+-- | MCMC
+--------------------------------------------------------------------------------
+
+-- Warning: does not do any kind of variable substitution!
+-- Assumes that k does not use "B-263-54" as a free variable
+bindx :: (Sing a, Sing b)
+      => Term ('HMeasure a) -> (Term a -> Term ('HMeasure b)) -> Term ('HMeasure ('HPair a b))
+bindx m k = do_ [ b :<~ m
+                , y :<~ k (Var b) ]
+            (Dirac (Pair (Var b) (Var y)))
+    where (b,y) = (V "B-263-54", V "y")
+
+fromTrace :: Trace a -> Maybe a
+fromTrace Bot        = Nothing
+fromTrace (Return a) = Just a
+fromTrace (Step _ t) = fromTrace t
+fromTrace (Lub t t') = case fromTrace t of
+                         Just a  -> Just a
+                         Nothing -> fromTrace t'
+
+choosePosterior :: (Term a -> Trace (Term ('HMeasure b), c)) -> Term a -> Maybe (Term ('HMeasure b))
+choosePosterior tracekern t = fromTrace (tracekern t) >>= return . fst
+
+principalBase :: (Sing a, Sing b, Inferrable a)
+              => Term ('HMeasure ('HPair a b)) -> Maybe (Base a)
+principalBase m = fromTrace (infer m) >>= return . snd
+
+swap :: (Sing a, Sing b) => Term ('HPair a b) -> Term ('HPair b a)
+swap p = Pair (scnd p) (frst p)
+
+swapM :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> Term ('HMeasure ('HPair b a))
+swapM m = Do (p :<~ m) (Dirac (swap (Var p)))
+    where p = V "p"
+
+pairWithUnit :: (Sing a) => Term ('HMeasure a) -> Term ('HMeasure ('HPair a 'HUnit))
+pairWithUnit m = Do (x :<~ m)
+                    (Dirac (Pair (Var x) Unit))
+    where x = V "x"
+
+bplusExt :: (Sing a) => Base a -> Base a -> Base a
+bplusExt b b' = case (typeOf_ b) of
+                  TReal -> bplus b b'
+                  _ -> ext b b'
+    where ext (Dirac_ Unit)  (Dirac_ Unit)  = Dirac_ Unit
+          ext (Either l1 r1) (Either l2 r2) = Either (bplusExt l1 l2) (bplusExt r1 r2)
+          ext (Bindx  b1 f1) (Bindx  b2 f2) = Bindx  (bplusExt b1 b2) (\x -> bplusExt (f1 x) (f2 x))
+          ext (Error_ e1)    (Error_ e2)    = Error_ (e1 ++ " and " ++ e2)
+          ext _ _ = Error_ $ "bplusExt: trying to add " ++ show b ++ " and " ++ show b'
+
+type Ratio = (Term ('HMeasure 'HUnit), Term ('HMeasure 'HUnit))
+
+density :: (Sing a, Inferrable a)
+        => Term ('HMeasure a) -> Term ('HMeasure a) -> Term a -> Maybe Ratio
+density m n t = do let m' = pairWithUnit m
+                       n' = pairWithUnit n
+                   bm <- principalBase m'
+                   bn <- principalBase n'
+                   let b = bplusExt bm bn                       
+                   d1 <- choosePosterior (disintegrate m' b) t
+                   d2 <- choosePosterior (disintegrate n' b) t
+                   return (d1,d2)
+
+greensRatio :: (Sing b, Inferrable b)
+            => Term ('HMeasure b) -> (Term b -> Term ('HMeasure b)) -> Term ('HPair b b) -> Maybe Ratio
+greensRatio target proposal = let m = bindx target proposal in density (swapM m) m
+
 singleSiteProposal :: Model ('HPair ('HPair 'HReal 'HReal) ('HPair 'HReal 'HReal)) 'HUnit
 singleSiteProposal = do_ [ x :<~ stdNormal
                          , y :<~ stdNormal
@@ -243,7 +316,9 @@ revJumpProposal :: Model ('HPair ('HEither 'HReal ('HPair 'HReal 'HReal))
                          'HUnit
 revJumpProposal = MPlus (do_ [ a  :<~ stdNormal
                              , b  :<~ stdNormal
-                             , a' :<~ Normal (Var a) (Real 0.1) ]
+                             -- , a' :<~ Dirac (Var a :: Term 'HReal) 
+                             , a' :<~ Normal (Var a) (Real 0.1)
+                             ]
                              (Dirac (Pair (Pair (Inr (Pair (Var a) (Var b)))
                                                 (Inl (Var a')))
                                           Unit)))
@@ -259,6 +334,19 @@ revJumpBase :: Base ('HPair ('HEither 'HReal ('HPair 'HReal 'HReal))
                             ('HEither 'HReal ('HPair 'HReal 'HReal)))
 revJumpBase = Bindx (Either Lebesgue_ (Bindx Lebesgue_ (const Lebesgue_))) $
               \x -> (Either Lebesgue_ (Bindx Lebesgue_ (const Lebesgue_)))
+
+detCorr :: Model ('HPair 'HReal 'HReal) 'HUnit
+detCorr = do_ [ x :<~ stdNormal
+              , y :<~ Dirac (Exp (Var x)) ]
+          (Dirac (Pair (Pair (Var x) (Var y)) Unit))
+    where (x,y) = (V "x", V "y")
+
+-- This is essentially helloWorld2D
+noisyCorr :: Model ('HPair 'HReal 'HReal) 'HUnit
+noisyCorr = do_ [ x :<~ stdNormal
+                , y :<~ Normal (Var x) (Real 1) ]
+            (Dirac (Pair (Pair (Var x) (Var y)) Unit))
+    where (x,y) = (V "x", V "y")
 
 -- | Boolean example
 ----------------------------------------------------------------------
