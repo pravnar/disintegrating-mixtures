@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, DataKinds #-}
+{-# LANGUAGE GADTs, DataKinds, RankNTypes #-}
 
 module Disintegrate where
 
@@ -6,7 +6,8 @@ import Syntax
 import Pretty
 import Helpers    
 import Control.Monad (liftM2, forM)
-import Data.Maybe (isNothing)    
+import Data.Maybe (isNothing)
+import Unsafe.Coerce (unsafeCoerce)
 
 disintegrate :: (Sing a, Sing b)
              => Term ('HMeasure ('HPair a b))
@@ -173,8 +174,11 @@ constrainValue e b t c h = track "constrainValue" st $ (<|) e b t c h
 (<|) (Pair e e') (Bindx b f) t c h = let c' = constrainValue e' (f (frst t)) (scnd t) c
                                      in constrainValue e b (frst t) c' h                                     
 (<|) (Var x) b t c h = case (retrieve x h) of
-                         Just (h2,m,h1) -> let c' = c . link h2 (x :<~ Dirac t)
-                                           in constrainOutcome m b t c' h1
+                         Just (h2,g,h1) ->
+                             case g of
+                               (_ :<~ m) -> let c' = c . link h2 (x :<~ Dirac t)
+                                            in constrainOutcome (unsafeCoerce m) b t c' h1
+                               _ -> undefined
                          Nothing        -> divide (Dirac_ (Var x)) b t >>= emit # (c h)
 (<|) e       b t c h = if (hnf e h)
                        then divide (Dirac_ e) b t >>= emit # (c h)
@@ -266,8 +270,11 @@ evaluate e k h = track "evaluate" st $ (|>) e k h
 (|>) m@(MPlus _ _)  k h = k m h
 (|>) Fail           k h = k Fail h
 (|>) (Var x)        k h = case (retrieve x h) of
-                            Just (h2,m,h1) ->
-                                perform m (\v -> k v . link h2 (x :<~ Dirac v)) h1
+                            Just (h2,g,h1) ->
+                                case g of
+                                  (_ :<~ m)     -> perform (unsafeCoerce m) (\v -> k v . link h2 (x :<~ Dirac v)) h1
+                                  -- (LetInl _ e0) -> evaluate (extractLeft g) (\v0 -> outl v0 (\e -> evaluate e (\v -> k v . link h2 (x :<~ Dirac v)))) h1
+                                  -- (LetInr _ e0) -> evaluate (unsafeCoerce e0) (\v0 -> outr v0 (\e -> evaluate e (\v -> k v . link h2 (x :<~ Dirac v)))) h1
                             Nothing -> k (Var x) h
 (|>) e              k h = if (hnf e h) then k e h
                           else return (Error "evaluate: unknown term")

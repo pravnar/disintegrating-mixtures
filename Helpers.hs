@@ -12,7 +12,7 @@ import Pretty
 import Control.Monad.State
 import Data.List (find, nub)
 import Data.Maybe (catMaybes, fromMaybe, fromJust)
-import Data.Set as S (empty)
+import Data.Set as S (empty, union, Set(..))
 import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.HashMap.Strict as M
 -- import Debug.Trace
@@ -212,13 +212,20 @@ match x (LetInl y _) = x == y
 match x (LetInr y _) = x == y
 match _ _            = False
 
-retrieve :: Var -> Heap -> Maybe (Heap, Term ('HMeasure a), Heap)
+retrieve :: Var -> Heap -> Maybe (Heap, Guard Var, Heap)
 retrieve x h =
   case (break (match x) h) of
-    (h2, (_ :<~ m):h1) -> Just (h2, unsafeCoerce m, h1)
-    _                  -> Nothing -- ^ TODO handle let inl / let inr cases
+    (h2, g:h1) -> Just (h2, g, h1)
+    -- (h2, (_ :<~ m):h1)    -> Just (h2, M (unsafeCoerce m), h1)
+    -- (h2, (LetInl _ e):h1) -> Just (h2, L (unsafeCoerce e), h1)
+    -- (h2, (LetInr _ e):h1) -> Just (h2, R (unsafeCoerce e), h1)
+    _                     -> Nothing
 
 store :: Guard Var -> Heap -> Heap
+-- store g@(x :<~ _)    h = guard (not $ any (match x) h) >> return (g:h)
+-- store g@(LetInl x _) h = guard (not $ any (match x) h) >> return (g:h)
+-- store g@(LetInr x _) h = guard (not $ any (match x) h) >> return (g:h)
+-- store g              h = return (g:h)
 store g@(x :<~ _) = checkAndPush
     where checkAndPush h =
               if any (match x) h
@@ -779,3 +786,53 @@ diracUnit gs = do_ gs (Dirac Unit)
 
 bindUnit :: Term ('HMeasure 'HUnit) -> Guard Var
 bindUnit m = V "_" :<~ m
+
+-- | State monad with Names for defining and using measure combinators that bind
+--   variables, like bindx or liftMeasure
+
+type N = State Names
+
+instance HasNames N where
+    getNames = get
+    putNames = put
+
+addNewVars :: S.Set String -> Names -> Names
+addNewVars new (Names i existing) = Names i (S.union new existing)
+
+liftMeasure :: (Sing a, Sing b)
+            => (Term a -> Term b)
+            -> Term ('HMeasure a)
+            -> N (Term ('HMeasure b))
+liftMeasure f m = do modify (addNewVars (varsIn m))
+                     x <- freshVar "lm"
+                     return (Do (x :<~ m) (Dirac (f (Var x))))
+
+-- Warning: does not do any kind of variable substitution!
+-- Assumes that k does not use "B-263-54" as a free variable                                          
+bindx :: (Sing a, Sing b)
+      => Term ('HMeasure a)
+      -> (Term a -> Term ('HMeasure b))
+      -> N (Term ('HMeasure ('HPair a b)))
+bindx m k = do d <- freshVar "dummy"
+               modify (addNewVars (varsIn m))
+               modify (addNewVars (varsIn (k (Var d))))
+               x <- freshVar "B-263-54-"
+               y <- freshVar "y"
+               return $ do_ [ x :<~ m
+                            , y :<~ k (Var x) ]
+                            (Dirac (Pair (Var x) (Var y)))
+
+productM :: (Sing a, Sing b)
+         => Term ('HMeasure a)
+         -> Term ('HMeasure b)
+         -> N (Term ('HMeasure ('HPair a b)))
+productM m = bindx m . const
+            
+initNames :: Term a -> Names
+initNames t = Names 0 (varsIn t)
+
+evalNames :: N a -> a
+evalNames n = evalState n (Names 0 empty)
+
+withDiffNames :: N a -> N b -> (a,b)
+withDiffNames na nb = evalNames (liftM2 (,) na nb)

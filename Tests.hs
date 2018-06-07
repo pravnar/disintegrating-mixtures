@@ -184,15 +184,6 @@ eitherTest = Dirac (Pair (Inl Unit) Unit)
 -- | MCMC
 --------------------------------------------------------------------------------
 
--- Warning: does not do any kind of variable substitution!
--- Assumes that k does not use "B-263-54" as a free variable
-bindx :: (Sing a, Sing b)
-      => Term ('HMeasure a) -> (Term a -> Term ('HMeasure b)) -> Term ('HMeasure ('HPair a b))
-bindx m k = do_ [ b :<~ m
-                , y :<~ k (Var b) ]
-            (Dirac (Pair (Var b) (Var y)))
-    where (b,y) = (V "B-263-54", V "y")
-
 fromTrace :: Trace a -> Maybe a
 fromTrace Bot        = Nothing
 fromTrace (Return a) = Just a
@@ -208,17 +199,8 @@ principalBase :: (Sing a, Sing b, Inferrable a)
               => Term ('HMeasure ('HPair a b)) -> Maybe (Base a)
 principalBase m = fromTrace (infer m) >>= return . snd
 
-swap :: (Sing a, Sing b) => Term ('HPair a b) -> Term ('HPair b a)
-swap p = Pair (scnd p) (frst p)
-
-swapM :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> Term ('HMeasure ('HPair b a))
-swapM m = Do (p :<~ m) (Dirac (swap (Var p)))
-    where p = V "p"
-
-pairWithUnit :: (Sing a) => Term ('HMeasure a) -> Term ('HMeasure ('HPair a 'HUnit))
-pairWithUnit m = Do (x :<~ m)
-                    (Dirac (Pair (Var x) Unit))
-    where x = V "x"
+switch :: (Sing a, Sing b) => Term ('HPair a b) -> Term ('HPair b a)
+switch p = Pair (scnd p) (frst p)
 
 bplusExt :: (Sing a) => Base a -> Base a -> Base a
 bplusExt b b' = case (typeOf_ b) of
@@ -232,10 +214,14 @@ bplusExt b b' = case (typeOf_ b) of
 
 type Ratio = (Term ('HMeasure 'HUnit), Term ('HMeasure 'HUnit))
 
+    
+
+pairWithUnit :: (Sing a) => Term ('HMeasure a) -> N (Term ('HMeasure ('HPair a 'HUnit)))
+pairWithUnit = liftMeasure (\x -> Pair x Unit)
+
 density :: (Sing a, Inferrable a)
         => Term ('HMeasure a) -> Term ('HMeasure a) -> Term a -> Maybe Ratio
-density m n t = do let m' = pairWithUnit m
-                       n' = pairWithUnit n
+density m n t = do let (m',n') = withDiffNames (pairWithUnit m) (pairWithUnit n)
                    bm <- principalBase m'
                    bn <- principalBase n'
                    let b = bplusExt bm bn                       
@@ -245,7 +231,9 @@ density m n t = do let m' = pairWithUnit m
 
 greensRatio :: (Sing b, Inferrable b)
             => Term ('HMeasure b) -> (Term b -> Term ('HMeasure b)) -> Term ('HPair b b) -> Maybe Ratio
-greensRatio target proposal = let m = bindx target proposal in density (swapM m) m
+greensRatio target proposal = let m    = evalNames $ bindx target proposal
+                                  mrev = evalNames $ liftMeasure switch m
+                              in density mrev m
 
 singleSiteProposal :: Model ('HPair ('HPair 'HReal 'HReal) ('HPair 'HReal 'HReal)) 'HUnit
 singleSiteProposal = do_ [ x :<~ stdNormal
@@ -316,8 +304,8 @@ revJumpProposal :: Model ('HPair ('HEither 'HReal ('HPair 'HReal 'HReal))
                          'HUnit
 revJumpProposal = MPlus (do_ [ a  :<~ stdNormal
                              , b  :<~ stdNormal
-                             -- , a' :<~ Dirac (Var a :: Term 'HReal) 
-                             , a' :<~ Normal (Var a) (Real 0.1)
+                             , a' :<~ Dirac (Var a :: Term 'HReal) 
+                             -- , a' :<~ Normal (Var a) (Real 0.1)
                              ]
                              (Dirac (Pair (Pair (Inr (Pair (Var a) (Var b)))
                                                 (Inl (Var a')))
@@ -334,6 +322,52 @@ revJumpBase :: Base ('HPair ('HEither 'HReal ('HPair 'HReal 'HReal))
                             ('HEither 'HReal ('HPair 'HReal 'HReal)))
 revJumpBase = Bindx (Either Lebesgue_ (Bindx Lebesgue_ (const Lebesgue_))) $
               \x -> (Either Lebesgue_ (Bindx Lebesgue_ (const Lebesgue_)))
+
+either_ :: (Sing a, Sing b) => Term a -> Term b -> Term ('HMeasure ('HEither a b))
+either_ a b = MPlus (Dirac (Inl a)) (Dirac (Inr b))
+          
+
+dimensionMatch :: Model 'HReal ('HEither 'HReal ('HPair 'HReal 'HReal))
+dimensionMatch = do_ [ x :<~ stdNormal
+                     , y :<~ stdNormal
+                     , z :<~ either_ (Var x :: Term 'HReal)
+                                     (Pair (Var x) (Var y) :: Term ('HPair 'HReal 'HReal)) ]
+                     (Dirac (Pair (Add (Var x) (Var y))
+                                  (Var z)))
+    where (x,y,z) = (V "xen", V "yen", V "zen")
+
+dimMatchProposal :: Term ('HEither 'HReal ('HPair 'HReal 'HReal))
+                 -> Term ('HMeasure ('HEither 'HReal ('HPair 'HReal 'HReal)))
+dimMatchProposal e = MPlus (do_ [ LetInl x e
+                                , u :<~ stdNormal ]
+                                (Dirac (Inr (Pair (Add   (Var x) (Var u))
+                                                  (minus (Var x) (Var u))))))
+                           (do_ [ LetInr x e
+                                , u :<~ Normal (frac (Add (frst (Var x :: Term ('HPair 'HReal 'HReal)))
+                                                          (scnd (Var x :: Term ('HPair 'HReal 'HReal))))
+                                                     (Real 2))
+                                               (Real 0.0001) ]
+                                (Dirac (Inl (Var u))))
+    where (x,u) = (V "box", V "bucks")
+                     
+type NParamsType = 'HPair 'HReal 'HReal
+type OneNormal  = NParamsType
+type TwoNormals = 'HPair NParamsType NParamsType
+
+finiteMixtureModel :: Model 'HReal ('HEither OneNormal TwoNormals)
+finiteMixtureModel = MPlus (do_ [ m1 :<~ stdNormal
+                                , s1 :<~ stdNormal
+                                , x :<~ Normal (Var m1) (Var s1) ]
+                                (Dirac (Pair (Var x) (Inl (Pair (Var m1) (Var s1))))))
+                           (do_ [ m1 :<~ stdNormal
+                                , s1 :<~ stdNormal
+                                , m2 :<~ stdNormal
+                                , s2 :<~ stdNormal
+                                , x :<~ MPlus (Normal (Var m1) (Var s1))
+                                              (Normal (Var m2) (Var s2)) ]
+                                (Dirac (Pair (Var x) (Inr (Pair (Pair (Var m1) (Var s1))
+                                                                (Pair (Var m2) (Var s2)))))))
+    where (m1,s1,m2,s2,x) = (V "m1", V "s1", V "m2", V "s2", V "x")                            
 
 detCorr :: Model ('HPair 'HReal 'HReal) 'HUnit
 detCorr = do_ [ x :<~ stdNormal
@@ -378,6 +412,48 @@ twoDice = do_ [ x :<~ msum_ [Dirac (Real 1), Dirac (Real 2), Dirac (Real 3)]
               , r :<~ Dirac (If (Var d) (Var x :: Term 'HReal) (Var y)) ]
           (Dirac (Pair (Var r) (Var d)))
     where (x,y,r,d) = (V "x", V "y", V "r", V "d")
+
+-- | Mutual information
+-- https://papers.nips.cc/paper/7180-estimating-mutual-information-for-discrete-continuous-mixtures
+----------------------------------------------------------------------------------------------------
+
+-- Experiment I from the paper
+gao1 :: (Var,Var) -> Term ('HMeasure ('HPair 'HReal 'HReal))
+gao1 (x,y) = MPlus (do_ [ x :<~ stdNormal
+                        , y :<~ stdNormal ]
+                        (Dirac (Pair (Var x) (Var y))))
+                   (MPlus (Do (Factor (Real 0.9))
+                              (MPlus (Dirac (Pair (Real    1) (Real  1)))
+                                     (Dirac (Pair (Real $ -1) (Real $ -1)))))
+                          (Do (Factor (Real 0.1))
+                              (MPlus (Dirac (Pair (Real    1) (Real $ -1)))
+                                     (Dirac (Pair (Real $ -1) (Real    1))))))
+    -- where (x,y) = (V "gaox", V "gaoy")
+
+fstmarginal :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> N (Term ('HMeasure a))
+fstmarginal = liftMeasure Fst
+
+sndmarginal :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> N (Term ('HMeasure b))
+sndmarginal = liftMeasure Snd
+
+-- The Radon-Nikodym derivative term used in the definition of mutual
+-- information in Gao et el.
+densMI :: (Sing a, Sing b, Inferrable a, Inferrable b)
+       => ((Var,Var) -> Term ('HMeasure ('HPair a b)))
+       -> Term ('HPair a b)
+       -> Maybe Ratio
+densMI vvm = let (m,n) = evalState (do x1 <- freshVar "x"
+                                       y1 <- freshVar "y"
+                                       x2 <- freshVar "x"
+                                       y2 <- freshVar "y"
+                                       mf <- fstmarginal (vvm (x1,y1))
+                                       ms <- sndmarginal (vvm (x2,y2))
+                                       n <- productM mf ms
+                                       x3 <- freshVar "x"
+                                       y3 <- freshVar "y" -- this is all so ugly
+                                       return (vvm (x3,y3),n))
+                                   (initNames (vvm (V "dummy", V "dummy"))) 
+           in density m n
 
 -- | Testing equality on Hakaru terms
 ----------------------------------------------------------------------
