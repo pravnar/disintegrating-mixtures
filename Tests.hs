@@ -31,20 +31,20 @@ check prog base = putStrLn $ format (title prog base t) (disintegrate prog base 
     where t = Var obs
 
 constraintsOn :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> IO ()
-constraintsOn prog = putStrLn $ format (title prog b t) (disintegrate prog b t)
+constraintsOn prog = print (fmap snd $ disintegrate prog b t)
     where (b,t) = (fst (base 0) [], Var obs)
 
-infer :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> Trace (Term ('HMeasure b), Base a)
-infer prog = let (b,t)  = (fst (base 0) [], Var obs)
-                 anss   = disintegrate prog b t
-                 initState e = (Names 0 (varsIn e), [])
-                 sat (e,cs) = (e, evalState (mapM solve cs) (initState e))
-                 inferred = fmap (second (findBase b . group) . sat) anss
+infer :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> Term a -> Trace (Term ('HMeasure b), Base a)
+infer prog t = let b      = fst (base 0) []
+                   anss   = disintegrate prog b t
+                   initState e = (Names 0 (varsIn e), [])
+                   sat (e,cs) = (e, evalState (mapM solve cs) (initState e))
+                   inferred = fmap (second (findBase b . group) . sat) anss
              in inferred
 
 printInferred :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> IO ()
 printInferred prog = let (b,t)  = (fst (base 0) [], Var obs)
-                     in putStrLn $ format (title prog b t) (infer prog)
+                     in putStrLn $ format (title prog b t) (infer prog t)
 
 -- | Draw a graph of the disintegration trace and save it in a pdf file
 viz :: (Sing a, Sing b) => FilePath -> Term ('HMeasure ('HPair a b)) -> Base a -> IO ()
@@ -196,8 +196,12 @@ choosePosterior :: (Term a -> Trace (Term ('HMeasure b), c)) -> Term a -> Maybe 
 choosePosterior tracekern t = fromTrace (tracekern t) >>= return . fst
 
 principalBase :: (Sing a, Sing b, Inferrable a)
-              => Term ('HMeasure ('HPair a b)) -> Maybe (Base a)
-principalBase m = fromTrace (infer m) >>= return . snd
+              => Term ('HMeasure ('HPair a b)) -> Term a -> Maybe (Base a)
+principalBase m t = fromTrace (infer m t) >>= return . snd
+
+allBases :: (Sing a, Sing b, Inferrable a)
+         => Term ('HMeasure ('HPair a b)) -> Term a -> Trace (Base a)
+allBases m t = fmap snd $ infer m t
 
 switch :: (Sing a, Sing b) => Term ('HPair a b) -> Term ('HPair b a)
 switch p = Pair (scnd p) (frst p)
@@ -222,17 +226,22 @@ pairWithUnit = liftMeasure (\x -> Pair x Unit)
 density :: (Sing a, Inferrable a)
         => Term ('HMeasure a) -> Term ('HMeasure a) -> Term a -> Maybe Ratio
 density m n t = do let (m',n') = withDiffNames (pairWithUnit m) (pairWithUnit n)
-                   bm <- principalBase m'
-                   bn <- principalBase n'
+                   bm <- principalBase m' t
+                   bn <- principalBase n' t
                    let b = bplusExt bm bn                       
                    d1 <- choosePosterior (disintegrate m' b) t
                    d2 <- choosePosterior (disintegrate n' b) t
                    return (d1,d2)
 
 greensRatio :: (Sing b, Inferrable b)
-            => Term ('HMeasure b) -> (Term b -> Term ('HMeasure b)) -> Term ('HPair b b) -> Maybe Ratio
-greensRatio target proposal = let m    = evalNames $ bindx target proposal
-                                  mrev = evalNames $ liftMeasure switch m
+            => Term ('HMeasure b)
+            -> (Term b -> Term ('HMeasure b))
+            -> Term ('HPair b b)
+            -> Maybe Ratio
+greensRatio target proposal = let (m,mrev) = evalNames $
+                                             do m    <- bindx target proposal
+                                                mrev <- liftMeasure switch m
+                                                return (m,mrev)
                               in density mrev m
 
 singleSiteProposal :: Model ('HPair ('HPair 'HReal 'HReal) ('HPair 'HReal 'HReal)) 'HUnit
@@ -304,8 +313,8 @@ revJumpProposal :: Model ('HPair ('HEither 'HReal ('HPair 'HReal 'HReal))
                          'HUnit
 revJumpProposal = MPlus (do_ [ a  :<~ stdNormal
                              , b  :<~ stdNormal
-                             , a' :<~ Dirac (Var a :: Term 'HReal) 
-                             -- , a' :<~ Normal (Var a) (Real 0.1)
+                             -- , a' :<~ Dirac (Var a :: Term 'HReal) 
+                             , a' :<~ Normal (Var a) (Real 0.1)
                              ]
                              (Dirac (Pair (Pair (Inr (Pair (Var a) (Var b)))
                                                 (Inl (Var a')))
@@ -336,19 +345,34 @@ dimensionMatch = do_ [ x :<~ stdNormal
                                   (Var z)))
     where (x,y,z) = (V "xen", V "yen", V "zen")
 
+dimMatchTarget :: Term ('HMeasure ('HEither 'HReal ('HPair 'HReal 'HReal)))
+dimMatchTarget = let p = choosePosterior (disintegrate dimensionMatch Lebesgue_) (Real 42)
+                 in case p of
+                      Just t  -> t
+                      Nothing -> error "dimMatchTarget: got nothing"
+
 dimMatchProposal :: Term ('HEither 'HReal ('HPair 'HReal 'HReal))
                  -> Term ('HMeasure ('HEither 'HReal ('HPair 'HReal 'HReal)))
 dimMatchProposal e = MPlus (do_ [ LetInl x e
-                                , u :<~ stdNormal ]
-                                (Dirac (Inr (Pair (Add   (Var x) (Var u))
-                                                  (minus (Var x) (Var u))))))
+                                , u :<~ stdNormal
+                                , u2 :<~ stdNormal ]
+                                (Dirac (Inr (Pair -- (Add   (Var x) (Var u))
+                                                  -- (minus (Var x) (Var u2))
+                                                  (Var x) (Var u)
+                                            ))))
                            (do_ [ LetInr x e
                                 , u :<~ Normal (frac (Add (frst (Var x :: Term ('HPair 'HReal 'HReal)))
                                                           (scnd (Var x :: Term ('HPair 'HReal 'HReal))))
                                                      (Real 2))
                                                (Real 0.0001) ]
                                 (Dirac (Inl (Var u))))
-    where (x,u) = (V "box", V "bucks")
+    where (x,u,u2) = (V "box", V "bucks", V "verysafe")
+
+dim     = evalNames (bindx dimMatchTarget dimMatchProposal)
+dimrev  = evalNames (liftMeasure switch dim)
+udim    = evalNames (pairWithUnit dim)
+udimrev = evalNames (pairWithUnit dimrev)
+         
                      
 type NParamsType = 'HPair 'HReal 'HReal
 type OneNormal  = NParamsType
@@ -418,17 +442,20 @@ twoDice = do_ [ x :<~ msum_ [Dirac (Real 1), Dirac (Real 2), Dirac (Real 3)]
 ----------------------------------------------------------------------------------------------------
 
 -- Experiment I from the paper
-gao1 :: (Var,Var) -> Term ('HMeasure ('HPair 'HReal 'HReal))
-gao1 (x,y) = MPlus (do_ [ x :<~ stdNormal
-                        , y :<~ stdNormal ]
-                        (Dirac (Pair (Var x) (Var y))))
-                   (MPlus (Do (Factor (Real 0.9))
-                              (MPlus (Dirac (Pair (Real    1) (Real  1)))
-                                     (Dirac (Pair (Real $ -1) (Real $ -1)))))
-                          (Do (Factor (Real 0.1))
-                              (MPlus (Dirac (Pair (Real    1) (Real $ -1)))
-                                     (Dirac (Pair (Real $ -1) (Real    1))))))
-    -- where (x,y) = (V "gaox", V "gaoy")
+gao :: N (Term ('HMeasure ('HPair 'HReal 'HReal)))
+gao = do pm <- productM stdNormal stdNormal
+         return $ msum_ [ pm
+                        , weight (Real 0.45) (Dirac (Pair (Real    1) (Real    1)))
+                        , weight (Real 0.45) (Dirac (Pair (Real $ -1) (Real $ -1)))
+                        , weight (Real 0.05) (Dirac (Pair (Real    1) (Real $ -1)))
+                        , weight (Real 0.05) (Dirac (Pair (Real $ -1) (Real    1)))]
+
+gaoTwo :: N (Term ('HMeasure ('HPair 'HReal 'HReal)))
+gaoTwo = do pm <- productM stdNormal stdNormal
+            return $ msum_ [ pm
+                           , weight (Real 0.55) (Dirac (Pair (Real    1) (Real    1)))
+                           , weight (Real 0.45) (Dirac (Pair (Real $ -1) (Real    1)))]
+         
 
 fstmarginal :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> N (Term ('HMeasure a))
 fstmarginal = liftMeasure Fst
@@ -439,21 +466,16 @@ sndmarginal = liftMeasure Snd
 -- The Radon-Nikodym derivative term used in the definition of mutual
 -- information in Gao et el.
 densMI :: (Sing a, Sing b, Inferrable a, Inferrable b)
-       => ((Var,Var) -> Term ('HMeasure ('HPair a b)))
+       => N (Term ('HMeasure ('HPair a b)))
        -> Term ('HPair a b)
        -> Maybe Ratio
-densMI vvm = let (m,n) = evalState (do x1 <- freshVar "x"
-                                       y1 <- freshVar "y"
-                                       x2 <- freshVar "x"
-                                       y2 <- freshVar "y"
-                                       mf <- fstmarginal (vvm (x1,y1))
-                                       ms <- sndmarginal (vvm (x2,y2))
-                                       n <- productM mf ms
-                                       x3 <- freshVar "x"
-                                       y3 <- freshVar "y" -- this is all so ugly
-                                       return (vvm (x3,y3),n))
-                                   (initNames (vvm (V "dummy", V "dummy"))) 
-           in density m n
+densMI nm = let (mu,nu) = evalNames (do mu <- nm
+                                        addVarsIn mu
+                                        mf <- nm >>= fstmarginal
+                                        ms <- nm >>= sndmarginal
+                                        nu <- productM mf ms
+                                        return (mu,nu))
+            in density mu nu
 
 -- | Testing equality on Hakaru terms
 ----------------------------------------------------------------------

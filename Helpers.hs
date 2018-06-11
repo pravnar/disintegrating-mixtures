@@ -12,7 +12,7 @@ import Pretty
 import Control.Monad.State
 import Data.List (find, nub)
 import Data.Maybe (catMaybes, fromMaybe, fromJust)
-import Data.Set as S (empty, union, Set(..))
+import Data.Set as S (empty, union, Set(..), unions)
 import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.HashMap.Strict as M
 -- import Debug.Trace
@@ -220,6 +220,12 @@ retrieve x h =
     -- (h2, (LetInl _ e):h1) -> Just (h2, L (unsafeCoerce e), h1)
     -- (h2, (LetInr _ e):h1) -> Just (h2, R (unsafeCoerce e), h1)
     _                     -> Nothing
+
+unsafeLeft :: Term ('HEither a b) -> Term ('HEither a' b)
+unsafeLeft = unsafeCoerce
+
+unsafeRight :: Term ('HEither a b) -> Term ('HEither a b')
+unsafeRight = unsafeCoerce
 
 store :: Guard Var -> Heap -> Heap
 -- store g@(x :<~ _)    h = guard (not $ any (match x) h) >> return (g:h)
@@ -444,8 +450,19 @@ group = foldr groupByDenom M.empty
                                         (bVar $ denom c)
                                         (inScope (denom c) , numer c)
           f c (es1, b1) (es2, b2)
-              | es1 == es2 = (es1, bplus b1 b2)
-              | otherwise  = error ("group: mismatched inScope in " ++ show c)
+              | length es1 == length es2 =
+                  let varsInScope (IS t) = varsIn t
+                      init = ( Names 0 (S.unions . map varsInScope $ es1++es2) , [] )
+                      newvars :: [Term 'HReal]
+                      newvars = flip evalState init $
+                                replicateM (length es1) (Var <$> (freshVar "v" :: S Var))
+                      newIS = map IS newvars
+                      b1' = modifyBase (es1,b1) newIS
+                      b2' = modifyBase (es2,b2) newIS
+                  in (newIS, bplus b1' b2')
+                  -- (es1, bplus b1 b2)
+              | otherwise  = error ("group: mismatched inScope lengths in " ++ show es1
+                                   ++ " and " ++ show es2 ++ " with c = " ++ show c)
 
 modifyBase :: BaseClosure -> [InScope] -> Base 'HReal
 modifyBase (old,b) new = evalState (bSubsts findVarOnly b) initState
@@ -622,6 +639,11 @@ unless_ :: (Sing a) => TermHBool -> Term ('HMeasure a) -> Term ('HMeasure a)
 unless_ (Inl Unit) _ = Fail
 unless_ (Inr Unit) m = m
 unless_ b          m = Do (observeNot b) m
+
+weight :: (Sing a) => Term 'HReal -> Term ('HMeasure a) -> Term ('HMeasure a)
+weight (Real 0) m = Fail
+weight (Real 1) m = m
+weight r        m = Do (Factor r) m
                                                           
 outl :: (Sing a, Sing b, Sing c)
      => Term ('HEither a b)
@@ -799,11 +821,14 @@ instance HasNames N where
 addNewVars :: S.Set String -> Names -> Names
 addNewVars new (Names i existing) = Names i (S.union new existing)
 
+addVarsIn :: Term a -> N ()
+addVarsIn = modify . addNewVars . varsIn
+
 liftMeasure :: (Sing a, Sing b)
             => (Term a -> Term b)
             -> Term ('HMeasure a)
             -> N (Term ('HMeasure b))
-liftMeasure f m = do modify (addNewVars (varsIn m))
+liftMeasure f m = do addVarsIn m
                      x <- freshVar "lm"
                      return (Do (x :<~ m) (Dirac (f (Var x))))
 
@@ -814,8 +839,8 @@ bindx :: (Sing a, Sing b)
       -> (Term a -> Term ('HMeasure b))
       -> N (Term ('HMeasure ('HPair a b)))
 bindx m k = do d <- freshVar "dummy"
-               modify (addNewVars (varsIn m))
-               modify (addNewVars (varsIn (k (Var d))))
+               addVarsIn m
+               addVarsIn (k (Var d))
                x <- freshVar "B-263-54-"
                y <- freshVar "y"
                return $ do_ [ x :<~ m
@@ -827,12 +852,12 @@ productM :: (Sing a, Sing b)
          -> Term ('HMeasure b)
          -> N (Term ('HMeasure ('HPair a b)))
 productM m = bindx m . const
-            
-initNames :: Term a -> Names
-initNames t = Names 0 (varsIn t)
+
+emptyNames :: Names
+emptyNames = Names 0 empty           
 
 evalNames :: N a -> a
-evalNames n = evalState n (Names 0 empty)
+evalNames n = evalState n emptyNames
 
 withDiffNames :: N a -> N b -> (a,b)
 withDiffNames na nb = evalNames (liftM2 (,) na nb)

@@ -58,8 +58,8 @@ data (a :: H) :~: (b :: H) where
 data Guard v where
     (:<~)   :: v -> Term ('HMeasure a) -> Guard v
     Factor  :: Term 'HReal -> Guard v
-    LetInl  :: v -> Term ('HEither a b) -> Guard v
-    LetInr  :: v -> Term ('HEither a b) -> Guard v
+    LetInl  :: (Sing b) => v -> Term ('HEither a b) -> Guard v
+    LetInr  :: (Sing a) => v -> Term ('HEither a b) -> Guard v
     Divide  :: Base a -> Base a -> Term a -> Guard v
 
 -- TODO (maybe): add a type parameter

@@ -175,10 +175,12 @@ constrainValue e b t c h = track "constrainValue" st $ (<|) e b t c h
                                      in constrainValue e b (frst t) c' h                                     
 (<|) (Var x) b t c h = case (retrieve x h) of
                          Just (h2,g,h1) ->
-                             case g of
-                               (_ :<~ m) -> let c' = c . link h2 (x :<~ Dirac t)
-                                            in constrainOutcome (unsafeCoerce m) b t c' h1
-                               _ -> undefined
+                             let c' = c . link h2 (x :<~ Dirac t)
+                             in case g of
+                                  (_ :<~ m)     -> constrainOutcome (unsafeCoerce m) b t c' h1
+                                  (LetInl _ e0) -> evaluate (unsafeLeft e0) (\v0 -> outl v0 (\e -> constrainValue e b t c')) h1
+                                  (LetInr _ e0) -> evaluate (unsafeRight e0) (\v0 -> outr v0 (\e -> constrainValue e b t c')) h1
+                                  _ -> error "bwdEval let inl / inr undefined"
                          Nothing        -> divide (Dirac_ (Var x)) b t >>= emit # (c h)
 (<|) e       b t c h = if (hnf e h)
                        then divide (Dirac_ e) b t >>= emit # (c h)
@@ -241,8 +243,8 @@ evaluate e k h = track "evaluate" st $ (|>) e k h
 (|>) (Equal e e')   k h = evaluate e (\v -> evaluate e' $ \v' -> k (Equal v v')) h
 (|>) (Less e e')    k h = evaluate e (\v -> evaluate e' $ \v' -> k (less v v')) h
 (|>) (Or e e')      k h = evaluate e (\v -> evaluate e' $ \v' -> k (Or v v')) h
-(|>) (Inl e)        k h = evaluate e (k . Inl) h
-(|>) (Inr e)        k h = evaluate e (k . Inr) h
+(|>) l@(Inl _)      k h = k l h -- evaluate e (k . Inl) h
+(|>) r@(Inr _)      k h = k r h -- evaluate e (k . Inr) h
 (|>) Unit           k h = k Unit h
 (|>) p@(Pair _ _)   k h = k p h
 (|>) (Fst e)        k h = flip (evaluate e) h $ \v h' ->
@@ -273,8 +275,8 @@ evaluate e k h = track "evaluate" st $ (|>) e k h
                             Just (h2,g,h1) ->
                                 case g of
                                   (_ :<~ m)     -> perform (unsafeCoerce m) (\v -> k v . link h2 (x :<~ Dirac v)) h1
-                                  -- (LetInl _ e0) -> evaluate (extractLeft g) (\v0 -> outl v0 (\e -> evaluate e (\v -> k v . link h2 (x :<~ Dirac v)))) h1
-                                  -- (LetInr _ e0) -> evaluate (unsafeCoerce e0) (\v0 -> outr v0 (\e -> evaluate e (\v -> k v . link h2 (x :<~ Dirac v)))) h1
+                                  (LetInl _ e0) -> evaluate (unsafeLeft e0) (\v0 -> outl v0 (\e -> evaluate e (\v -> k v . link h2 (x :<~ Dirac v)))) h1
+                                  (LetInr _ e0) -> evaluate (unsafeRight e0) (\v0 -> outr v0 (\e -> evaluate e (\v -> k v . link h2 (x :<~ Dirac v)))) h1
                             Nothing -> k (Var x) h
 (|>) e              k h = if (hnf e h) then k e h
                           else return (Error "evaluate: unknown term")
