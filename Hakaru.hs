@@ -92,25 +92,12 @@ toHakaru t@Fail = return $ HP.reject (toHSing $ typeOf t)
 toHakaru Lebesgue = return HP.lebesgue
 toHakaru (Dirac e) = HP.dirac <$> toHakaru e
 toHakaru (Normal m s) = CM.liftM2 (HP.normal) (toHakaru m) (HP.unsafeProb <$> toHakaru s)
-toHakaru (Do (x :<~ m) m') = -- do hm <- toHakaru m
-                             --    vm <- S.get
-                             --    let id = case lookup x vm of
-                             --               Nothing -> nextID vm
-                             --               Just id -> id
-                             --        v  = SV.Variable (Text.pack (name x)) id $
-                             --             TS.sUnMeasure (toHSing (typeOf m))
-                             --    S.put $ (x,id):vm
-                             --    hm' <- toHakaru m'
-                             --    return $ ABT.syn (AST.MBind AST.:$ hm
-                             --                                AST.:* ABT.bind v hm'
-                             --                                AST.:* AST.End)
-                             hakaruBind x m m' $ \n hm hm' ->
+toHakaru (Do (x :<~ m) m') = hakaruBind x m m' $ \n hm hm' ->
                              let v = SV.Variable (Text.pack (name x)) n $
                                      TS.sUnMeasure (toHSing (typeOf m))
                              in ABT.syn (AST.MBind AST.:$ hm
                                                    AST.:* ABT.bind v hm'
-                                                   AST.:* AST.End)
-                             -- hm HP.>>= (const (toHakaru m'))
+                                                   AST.:* AST.End) 
 toHakaru (Do (Factor e) m) = CM.liftM2 HP.withWeight (HP.unsafeProb <$> toHakaru e) (toHakaru m)
 toHakaru (Do (LetInl x e) m) = hakaruBind x e m $ \n he hm ->
                                let t = TS.sUnEither (toHSing (typeOf e))
@@ -120,7 +107,6 @@ toHakaru (Do (LetInl x e) m) = hakaruBind x e m $ \n he hm ->
                                in ABT.syn $ AST.Case_ he $
                                   [ SD.Branch (SD.pLeft  SD.PVar) (ABT.bind vlft hm)
                                   , SD.Branch (SD.pRight SD.PVar) (ABT.bind vrgt $ HP.reject (toHSing (typeOf m))) ]
-                          -- HP.let_ (toHakaru e) (const (toHakaru m))
 toHakaru (Do (LetInr x e) m) = hakaruBind x e m $ \n he hm ->
                                let t = TS.sUnEither (toHSing (typeOf e))
                                    h = Text.pack (name x)
@@ -128,8 +114,7 @@ toHakaru (Do (LetInr x e) m) = hakaruBind x e m $ \n he hm ->
                                    vrgt = SV.Variable h n (snd t)
                                in ABT.syn $ AST.Case_ he $
                                   [ SD.Branch (SD.pLeft  SD.PVar) (ABT.bind vlft $ HP.reject (toHSing (typeOf m)))
-                                  , SD.Branch (SD.pRight SD.PVar) (ABT.bind vrgt hm) ]
-                          -- HP.let_ (toHakaru e) (const (toHakaru m))
+                                  , SD.Branch (SD.pRight SD.PVar) (ABT.bind vrgt hm) ]                          
 toHakaru (Do (Divide _ _ _) _) = error "toHakaru: no defn for Divide guard"
 toHakaru (MPlus m m') = CM.liftM2 (HP.<|>) (toHakaru m) (toHakaru m')
 toHakaru t@(Var v) = do vm <- S.get
