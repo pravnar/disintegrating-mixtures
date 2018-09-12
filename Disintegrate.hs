@@ -1,4 +1,8 @@
-{-# LANGUAGE GADTs, DataKinds, RankNTypes #-}
+{-# LANGUAGE GADTs, 
+             DataKinds, 
+             RankNTypes, 
+             MultiParamTypeClasses,
+             FlexibleInstances #-}
 
 module Disintegrate where
 
@@ -26,19 +30,21 @@ disintegrate term base obs = fmap output go
 -- wrt base2
 -- Success is a set of conditions (repr. as a sequence of
 -- guards) under which a density exists
-divide :: (Sing a) => Base a -> Base a -> Term a -> D [Guard Var]
+
+-- divide :: (Sing a) => Base a -> Base a -> Term a -> D [Guard Var]
+divide :: Base 'HReal -> Base 'HReal -> Term 'HReal -> D [Guard Var]
 divide (Dirac_ e)       (Dirac_ e')       _ = ifYesElse (return []) bot (termEq e e')
 divide (Dirac_ _)       Lebesgue_         _ = bot
 divide Lebesgue_        (Dirac_ _)        _ = bot
 divide Lebesgue_        Lebesgue_         _ = return []
-divide (Either b b')    (Either c c')     t = liftM2 gplus left right
-    where x     = V "x"
-          left  = (LetInl x t :) <$> divide b  c  (Var x)
-          right = (LetInr x t :) <$> divide b' c' (Var x) 
-divide (Bindx b1 f1)    (Bindx b2 f2)     t = divide b1 b2 (frst t) >>= \gs ->
-                                              (gs ++) <$> divide (f1 $ frst t)
-                                                                 (f2 $ frst t)
-                                                                 (scnd t)
+-- divide (Either b b')    (Either c c')     t = liftM2 gplus left right
+--     where x     = V "x"
+--           left  = (LetInl x t :) <$> divide b  c  (Var x)
+--           right = (LetInr x t :) <$> divide b' c' (Var x) 
+-- divide (Bindx b1 f1)    (Bindx b2 f2)     t = divide b1 b2 (frst t) >>= \gs ->
+--                                               (gs ++) <$> divide (f1 $ frst t)
+--                                                                  (f2 $ frst t)
+--                                                                  (scnd t)
 divide Lebesgue_        (Mixture False _) _ = bot
 divide Lebesgue_        (Mixture True es) t = return [observeNot (Equal t e) | e <- es]
 divide (Dirac_ e)       (Mixture _ es)    t =
@@ -134,7 +140,8 @@ constrainValue e b t c h = track "constrainValue" st $ (<|) e b t c h
      -> (Heap -> D (Term ('HMeasure b)))
      -> Heap
      -> D (Term ('HMeasure b))
-(<|) Unit       b t c h = divide (Dirac_ Unit)     b t >>= emit # (c h)
+-- (<|) Unit       b t c h = divide (Dirac_ Unit)     b t >>= emit # (c h)
+(<|) Unit (Dirac_ Unit) t c h = c h
 (<|) (Real r)   b t c h = divide (Dirac_ (Real r)) b t >>= emit # (c h)
 (<|) (Neg e)    b t c h = constrainInv Neg_ b e t c h
 (<|) (Recip e)  b t c h = constrainInv Recip_ b e t c h
@@ -154,14 +161,14 @@ constrainValue e b t c h = track "constrainValue" st $ (<|) e b t c h
                           case v of
                             Pair e' _ -> constrainValue e' b t c h'
                             _ -> if (atomic v h')
-                                 then divide (Dirac_ (Fst v)) b t >>= emit # (c h')
+                                 then bot -- divide (Dirac_ (Fst v)) b t >>= emit # (c h')
                                  else return (Error "constrainValue.fst: \
                                                     \unknown HPair hnf")
 (<|) (Snd e)    b t c h = flip (evaluate e) h $ \v h' ->
                           case v of
                             Pair _ e' -> constrainValue e' b t c h'
                             _ -> if (atomic v h')
-                                 then divide (Dirac_ (Snd v)) b t >>= emit # (c h')
+                                 then bot -- divide (Dirac_ (Snd v)) b t >>= emit # (c h')
                                  else return (Error "constrainValue.snd: \
                                                     \unknown HPair hnf")
 (<|) (If e tb eb) b          t c h = let m = mplus_ (when_ e (Dirac tb)) (unless_ e (Dirac eb))
@@ -181,9 +188,9 @@ constrainValue e b t c h = track "constrainValue" st $ (<|) e b t c h
                                   (LetInl _ e0) -> evaluate (unsafeLeft e0) (\v0 -> outl v0 (\e -> constrainValue e b t c')) h1
                                   (LetInr _ e0) -> evaluate (unsafeRight e0) (\v0 -> outr v0 (\e -> constrainValue e b t c')) h1
                                   _ -> error "bwdEval let inl / inr undefined"
-                         Nothing        -> divide (Dirac_ (Var x)) b t >>= emit # (c h)
+                         Nothing        -> bot -- divide (Dirac_ (Var x)) b t >>= emit # (c h)
 (<|) e       b t c h = if (hnf e h)
-                       then divide (Dirac_ e) b t >>= emit # (c h)
+                       then bot -- divide (Dirac_ e) b t >>= emit # (c h)
                        else return (Error "constrain value: unknown term")
 
 
@@ -280,3 +287,25 @@ evaluate e k h = track "evaluate" st $ (|>) e k h
                             Nothing -> k (Var x) h
 (|>) e              k h = if (hnf e h) then k e h
                           else return (Error "evaluate: unknown term")
+
+
+
+-- | Applying base variable substitution
+-----------------------------------------
+
+class Reanimate a b where
+    reanimateWith :: Sigma -> a -> b
+
+-- | Meant to be used for `Constraint`s
+-- TODO(pravnar): why are `Constraint`s universally quantified, rather
+-- than being restricted to `Base 'HReal`s?
+instance Reanimate (Base 'HReal, Base 'HReal) (Term 'HReal -> D [Guard Var]) where
+    reanimateWith sigma (groundbase, unknownbase) = divide groundbase (findBase unknownbase sigma)
+
+-- stuff below this line does not typecheck
+instance Reanimate (Term a) (D (Term a)) where
+    reanimateWith sigma (Do (Divide groundbase unknownbase t) m)
+        = reanimateWith sigma m >>= \m' ->
+          reanimateWith sigma t >>= \t' ->
+          reanimateWith sigma (groundbase, unknownbase) t' >>= \gs ->
+          return (do_ gs m')
