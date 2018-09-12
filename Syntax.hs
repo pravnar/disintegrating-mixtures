@@ -69,7 +69,7 @@ type Heap = [Guard Var]
 
 data Term a where
     Pi       :: Term 'HReal
-    Real     :: Double -> Term 'HReal    
+    Real     :: Rational -> Term 'HReal    
     Neg      :: Term 'HReal -> Term 'HReal
     Abs      :: Term 'HReal -> Term 'HReal
     Recip    :: Term 'HReal -> Term 'HReal

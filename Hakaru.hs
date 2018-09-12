@@ -1,10 +1,7 @@
 {-# LANGUAGE DataKinds,
              KindSignatures,
              TypeFamilies,
-             RankNTypes,
-             GADTs,
-             ScopedTypeVariables,
-             PolyKinds #-}
+             TypeOperators #-}
 
 module Hakaru where
 
@@ -61,7 +58,7 @@ nextID vm = maximum (map snd vm) + 1
 
 toHakaru :: Term a -> S.State VarIDMap (HakaruTerm (HType a))
 toHakaru Pi = return HP.pi
-toHakaru (Real r) = return $ HP.real_ (toRational r)
+toHakaru (Real r) = return $ HP.real_ r
 toHakaru (Neg e) = HP.negate <$> (toHakaru e)
 toHakaru (Abs e) = HP.abs <$> toHakaru e
 toHakaru (Recip e) = HP.recip <$> toHakaru e
@@ -148,6 +145,17 @@ hakaruBind x e e' c = do he <- toHakaru e
                          S.put $ (x,id):vm
                          he' <- toHakaru e'
                          return $ c id he he'
+
+translate :: Term a -> HakaruTerm (HType a)
+translate t = S.evalState (toHakaru t) []
+
+-- TODO: fix this. Currently wrong because there is a mismatch of
+-- varIDs, between the "t" in the binding position and the "t"s in use
+-- positions.
+toHakaruLam :: TS.Sing a -> Term b -> HakaruTerm (a DK.:-> HType b)
+toHakaruLam s e = let (e',vm) = S.runState (toHakaru e) []
+                      v = SV.Variable (Text.pack (name obs)) (nextID vm) s
+                  in ABT.syn (AST.Lam_ AST.:$ ABT.bind v e' AST.:* AST.End)
 
 test :: IO ()
 test = print $ PC.pretty (S.evalState (toHakaru helloWorld) [])

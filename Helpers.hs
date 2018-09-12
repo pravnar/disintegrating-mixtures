@@ -104,12 +104,12 @@ ifYesElse t e mb = if isYes mb then t else e
 both :: Maybe Bool -> Maybe Bool -> Maybe Bool
 both m1 m2 = liftM2 (&&) m1 m2
 
-realOp :: Term 'HReal -> Term 'HReal -> (Double -> Double) -> Maybe Bool
+realOp :: Term 'HReal -> Term 'HReal -> (Rational -> Rational) -> Maybe Bool
 realOp (Real r) (Real r') f = Just $ f r == f r'
 realOp e        e'        _ = termEq e e'
 
 realOp2 :: Term 'HReal -> Term 'HReal -> Term 'HReal -> Term 'HReal
-        -> (Double -> Double -> Double) -> Maybe Bool
+        -> (Rational -> Rational -> Rational) -> Maybe Bool
 realOp2 (Real a) (Real a') (Real b) (Real b') f = Just $ f a a' == f b b'
 realOp2 a a' b b' _ = both (termEq a b) (termEq a' b')
 
@@ -124,9 +124,9 @@ termEq r@(Real _)   r'@(Real _)       = realOp r r' id
 termEq (Neg e)      (Neg e')          = realOp e e' negate
 termEq (Abs e)      (Abs e')          = realOp e e' abs
 termEq (Recip e)    (Recip e')        = realOp e e' recip
-termEq (Exp e)      (Exp e')          = realOp e e' exp
-termEq (Log e)      (Log e')          = realOp e e' log
-termEq (Sqrt e)     (Sqrt e')         = realOp e e' sqrt
+termEq (Exp e)      (Exp e')          = termEq e e'
+termEq (Log e)      (Log e')          = termEq e e'
+termEq (Sqrt e)     (Sqrt e')         = termEq e e'
 termEq (Square e)   (Square (Neg e')) = realOp e e' (^(2::Integer))
 termEq (Square e)   (Square e')       = realOp e e' (^(2::Integer))
 termEq (Add a a')   (Add b b')        = commute (realOp2 a a' b  b' (+))
@@ -440,6 +440,7 @@ findVarOnly t@(Var _) s = findDefault t s
 findVarOnly _ s = s
 
 type BaseClosure = ([InScope], Base 'HReal)
+type Sigma = M.HashMap BVar BaseClosure    
 
 -- | Assumption: all denominators are "variable" bases
 --   Assumption: if two constraints have the same denominator, then
@@ -474,7 +475,7 @@ modifyBase (old,b) new = evalState (bSubsts findVarOnly b) initState
 fail_ :: Base 'HReal
 fail_ = Mixture False []
 
-findBase :: (Sing a) => Base a -> M.HashMap BVar BaseClosure -> Base a
+findBase :: (Sing a) => Base a -> Sigma -> Base a
 findBase (Var_ v es)    m = modifyBase (M.lookupDefault (es, fail_) v m) es
 findBase (Either b b')  m = Either (findBase b m) (findBase b' m)
 findBase (Bindx b f)    m = Bindx (findBase b m) (\x -> findBase (f x) m)
@@ -547,17 +548,18 @@ reciprocal (Recip e) = e
 reciprocal e         = Recip e
 
 exponential :: Term 'HReal -> Term 'HReal
-exponential (Real r) = Real (exp r)
+exponential (Real 0) = Real 1
 exponential (Log e)  = e
 exponential e        = Exp e
 
 logarithm :: Term 'HReal -> Term 'HReal
-logarithm (Real r) = Real (log r)
+logarithm (Real 1) = Real 0
 logarithm (Exp e)  = e
 logarithm e        = Log e
 
 sqrroot :: Term 'HReal -> Term 'HReal
-sqrroot (Real r)   = Real (sqrt r)
+sqrroot (Real 0)   = Real 0
+sqrroot (Real 1)   = Real 1
 sqrroot (Square e) = e
 sqrroot e          = Sqrt e
 

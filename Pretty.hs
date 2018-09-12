@@ -7,8 +7,8 @@
 module Pretty where
 
 import           Syntax
-import           Text.PrettyPrint hiding (parens, empty, double)
-import qualified Text.PrettyPrint as PP (parens, empty, double)
+import           Text.PrettyPrint hiding (parens, empty, rational)
+import qualified Text.PrettyPrint as PP (parens, empty, rational)
 import           Control.Monad.State.Lazy (MonadState(..), StateT(..))
 import           Data.Graph.Inductive (Node, LNode, LEdge, Gr, mkGraph)
 import           Data.GraphViz hiding (Int, Square)
@@ -88,7 +88,7 @@ instance (Pretty v) => Pretty (Guard v) where
 
 instance Pretty (Term a) where
     pp _ Pi       = text "π"
-    pp _ (Real r) = PP.double r
+    pp _ (Real r) = PP.rational r
     pp p (Neg e)  = ppFun p "neg" [ppArg e]
     pp p (Abs e)  = ppFun p "abs" [ppArg e]
     pp p (Recip e)  = ppFun p "recip" [ppArg e]
