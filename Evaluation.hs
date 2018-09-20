@@ -79,7 +79,7 @@ proposal p = let (x,y) = (frst p, scnd p)
 eval5a :: IO ()
 eval5a = let t = Pair (Pair (Real 0) (Real    0.5))
                       (Pair (Real 0) (Real $ -0.5))
-         in case greensRatio (evalNames target) (evalNames . proposal) t of
+         in case greensRatio (evalNames target) proposal t of
               Just r -> print r
               Nothing -> putStrLn "eval5a: could not calculate acceptance ratio"
 

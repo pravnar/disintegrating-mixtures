@@ -231,11 +231,11 @@ density m n t = do let (m',n') = withDiffNames (pairWithUnit m) (pairWithUnit n)
 
 greensRatio :: (Sing b, Inferrable b)
             => Term ('HMeasure b)
-            -> (Term b -> Term ('HMeasure b))
+            -> (Term b -> CH (Term ('HMeasure b)))
             -> Term ('HPair b b)
             -> Maybe Ratio
 greensRatio target proposal = let (m,mrev) = evalNames $
-                                             do m    <- bindx target (return . proposal)
+                                             do m    <- bindx target proposal
                                                 mrev <- liftMeasure switch m
                                                 return (m,mrev)
                               in density mrev m
