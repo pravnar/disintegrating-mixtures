@@ -303,9 +303,9 @@ instance Reanimate (Base 'HReal, Base 'HReal) (Term 'HReal -> D [Guard Var]) whe
     reanimateWith sigma (groundbase, unknownbase) = divide groundbase (findBase unknownbase sigma)
 
 -- stuff below this line does not typecheck
-instance Reanimate (Term a) (D (Term a)) where
-    reanimateWith sigma (Do (Divide groundbase unknownbase t) m)
-        = reanimateWith sigma m >>= \m' ->
-          reanimateWith sigma t >>= \t' ->
-          reanimateWith sigma (groundbase, unknownbase) t' >>= \gs ->
-          return (do_ gs m')
+-- instance Reanimate (Term a) (D (Term a)) where
+--     reanimateWith sigma (Do (Divide groundbase unknownbase t) m)
+--         = reanimateWith sigma m >>= \m' ->
+--           reanimateWith sigma t >>= \t' ->
+--           reanimateWith sigma (groundbase, unknownbase) t' >>= \gs ->
+--           return (do_ gs m')
