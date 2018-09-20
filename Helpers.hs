@@ -632,6 +632,12 @@ if_ (Inl Unit) t _ = t
 if_ (Inr Unit) _ e = e
 if_ c          t e = If c t e
 
+min_ :: Term 'HReal -> Term 'HReal -> Term 'HReal
+min_ t1 t2 = if_ (Less t1 t2) t1 t2
+
+max_ :: Term 'HReal -> Term 'HReal -> Term 'HReal
+max_ t1 t2 = if_ (Less t1 t2) t2 t1
+
 when_ :: (Sing a) => TermHBool -> Term ('HMeasure a) -> Term ('HMeasure a)
 when_ (Inl Unit) m = m
 when_ (Inr Unit) _ = Fail
@@ -811,55 +817,79 @@ diracUnit gs = do_ gs (Dirac Unit)
 bindUnit :: Term ('HMeasure 'HUnit) -> Guard Var
 bindUnit m = V "_" :<~ m
 
--- | State monad with Names for defining and using measure combinators that bind
---   variables, like bindx or liftMeasure
 
-type N = State Names
+-- | "Core Hakaru Monad"
+----------------------------------------------------------------------
+-- State monad with Names, for defining and using measure combinators
+-- that bind variables, like bindx or liftMeasure
 
-instance HasNames N where
+type CH = State Names
+
+instance HasNames CH where
     getNames = get
     putNames = put
 
 addNewVars :: S.Set String -> Names -> Names
 addNewVars new (Names i existing) = Names i (S.union new existing)
 
-addVarsIn :: Term a -> N ()
+addVarsIn :: Term a -> CH ()
 addVarsIn = modify . addNewVars . varsIn
 
 liftMeasure :: (Sing a, Sing b)
             => (Term a -> Term b)
             -> Term ('HMeasure a)
-            -> N (Term ('HMeasure b))
+            -> CH (Term ('HMeasure b))
 liftMeasure f m = do addVarsIn m
                      x <- freshVar "lm"
                      return (Do (x :<~ m) (Dirac (f (Var x))))
 
+pairWithUnit :: (Sing a)
+             => Term ('HMeasure a)
+             -> CH (Term ('HMeasure ('HPair a 'HUnit)))
+pairWithUnit = liftMeasure (\x -> Pair x Unit)
+
 -- Warning: does not do any kind of variable substitution!
 -- Assumes that k does not use "B-263-54" as a free variable                                          
+bindWithFun :: (Sing a, Sing b, Sing c)
+            => (Term a -> Term b -> Term c)
+            -> Term ('HMeasure a)
+            -> (Term a -> CH (Term ('HMeasure b)))
+            -> CH (Term ('HMeasure c))
+bindWithFun c m k = do d <- freshVar "dummy"
+                       addVarsIn m
+                       kd <- k (Var d)
+                       addVarsIn kd
+                       x <- freshVar "B-263-54-"
+                       y <- freshVar "y"
+                       kx <- k (Var x)
+                       return $ do_ [ x :<~ m
+                                    , y :<~ kx ]
+                                    (Dirac (c (Var x) (Var y)))
+
+bind :: (Sing a, Sing b)
+      => Term ('HMeasure a)
+      -> (Term a -> CH (Term ('HMeasure b)))
+      -> CH (Term ('HMeasure b))
+bind = bindWithFun (\_ b -> b)
+
 bindx :: (Sing a, Sing b)
       => Term ('HMeasure a)
-      -> (Term a -> Term ('HMeasure b))
-      -> N (Term ('HMeasure ('HPair a b)))
-bindx m k = do d <- freshVar "dummy"
-               addVarsIn m
-               addVarsIn (k (Var d))
-               x <- freshVar "B-263-54-"
-               y <- freshVar "y"
-               return $ do_ [ x :<~ m
-                            , y :<~ k (Var x) ]
-                            (Dirac (Pair (Var x) (Var y)))
+      -> (Term a -> CH (Term ('HMeasure b)))
+      -> CH (Term ('HMeasure ('HPair a b)))
+bindx = bindWithFun (\a b -> Pair a b)
 
 productM :: (Sing a, Sing b)
          => Term ('HMeasure a)
          -> Term ('HMeasure b)
-         -> N (Term ('HMeasure ('HPair a b)))
-productM m = bindx m . const
+         -> CH (Term ('HMeasure ('HPair a b)))
+productM m = bindx m . (const.return)
 
 emptyNames :: Names
 emptyNames = Names 0 empty           
 
-evalNames :: N a -> a
+evalNames :: CH a -> a
 evalNames n = evalState n emptyNames
 
-withDiffNames :: N a -> N b -> (a,b)
+withDiffNames :: CH a -> CH b -> (a,b)
 withDiffNames na nb = evalNames (liftM2 (,) na nb)
+

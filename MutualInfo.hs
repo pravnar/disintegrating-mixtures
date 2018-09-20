@@ -26,7 +26,7 @@ import qualified Control.Monad.State as MS
 ----------------------------------------------------------------------------------------------------
 
 -- Experiment I from the paper
-gao :: N (Term ('HMeasure ('HPair 'HReal 'HReal)))
+gao :: CH (Term ('HMeasure ('HPair 'HReal 'HReal)))
 gao = do pm <- productM stdNormal stdNormal
          return $ msum_ [ pm
                         , weight (Real 0.45) (Dirac (Pair (Real    1) (Real    1)))
@@ -34,16 +34,16 @@ gao = do pm <- productM stdNormal stdNormal
                         , weight (Real 0.05) (Dirac (Pair (Real    1) (Real $ -1)))
                         , weight (Real 0.05) (Dirac (Pair (Real $ -1) (Real    1)))]
          
-fstmarginal :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> N (Term ('HMeasure a))
+fstmarginal :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> CH (Term ('HMeasure a))
 fstmarginal = liftMeasure Fst
 
-sndmarginal :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> N (Term ('HMeasure b))
+sndmarginal :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> CH (Term ('HMeasure b))
 sndmarginal = liftMeasure Snd
 
 -- The Radon-Nikodym derivative term used in the definition of mutual
 -- information in Gao et el.
 densMI :: (Sing a, Sing b, Inferrable a, Inferrable b)
-       => N (Term ('HMeasure ('HPair a b)))
+       => CH (Term ('HMeasure ('HPair a b)))
        -> Term ('HPair a b)
        -> Maybe Ratio
 densMI nm = let (mu,nu) = evalNames (do mu <- nm

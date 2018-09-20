@@ -217,11 +217,7 @@ bplusExt b b' = case (typeOf_ b) of
           ext _ _ = Error_ $ "bplusExt: trying to add " ++ show b ++ " and " ++ show b'
 
 type Ratio = (Term ('HMeasure 'HUnit), Term ('HMeasure 'HUnit))
-
     
-
-pairWithUnit :: (Sing a) => Term ('HMeasure a) -> N (Term ('HMeasure ('HPair a 'HUnit)))
-pairWithUnit = liftMeasure (\x -> Pair x Unit)
 
 density :: (Sing a, Inferrable a)
         => Term ('HMeasure a) -> Term ('HMeasure a) -> Term a -> Maybe Ratio
@@ -239,7 +235,7 @@ greensRatio :: (Sing b, Inferrable b)
             -> Term ('HPair b b)
             -> Maybe Ratio
 greensRatio target proposal = let (m,mrev) = evalNames $
-                                             do m    <- bindx target proposal
+                                             do m    <- bindx target (return . proposal)
                                                 mrev <- liftMeasure switch m
                                                 return (m,mrev)
                               in density mrev m
