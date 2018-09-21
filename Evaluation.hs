@@ -119,7 +119,7 @@ eval5b = case greensRatio (evalNames target5b) proposal5b (Var (V "t")) of
 tobit :: CH (Term ('HMeasure ('HPair 'HReal 'HReal)))
 tobit = bind (Normal (Real 3) (Real 2)) $ \x ->
         bind (Normal x (Real 1)) $ \y ->
-        dirac (Pair x (max_ (Real 0) (min_ (Real 1) y)))
+        dirac (Pair (max_ (Real 0) (min_ (Real 1) y)) x)
          
 eval6 :: IO ()
 eval6 = check (evalNames tobit) mixT01
