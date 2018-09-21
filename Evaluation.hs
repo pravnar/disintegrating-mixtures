@@ -64,30 +64,54 @@ mckay = bind Lebesgue $ \x ->
                                  `minus` (c2 `mul` (square (square x))))
                            (Dirac x)
 
-type RealPair = 'HPair 'HReal 'HReal
+type R2 = 'HPair 'HReal 'HReal
     
-target :: CH (Term ('HMeasure RealPair))
-target = mckay >>= \m ->
-         bindx m (\x -> return (Normal x (Real 1)))
+target5a :: CH (Term ('HMeasure R2))
+target5a = mckay >>= \m ->
+           bindx m (\x -> return (Normal x (Real 1)))
 
-proposal :: Term RealPair -> CH (Term ('HMeasure RealPair))
-proposal p = let (x,y) = (frst p, scnd p)
-             in do m1 <- bind (Normal x (Real 0.1)) (\x' -> return (Dirac (Pair x' y)))
-                   m2 <- bind (Normal y (Real 0.1)) (\y' -> return (Dirac (Pair x y')))
-                   return (mplus_ m1 m2)
+proposal5a :: Term R2 -> CH (Term ('HMeasure R2))
+proposal5a p = let (x,y) = (frst p, scnd p)
+               in do m1 <- bind (Normal x (Real 0.1)) (\x' -> return (Dirac (Pair x' y)))
+                     m2 <- bind (Normal y (Real 0.1)) (\y' -> return (Dirac (Pair x y')))
+                     return (mplus_ m1 m2)
 
 eval5a :: IO ()
 eval5a = let t = Pair (Pair (Real 0) (Real    0.5))
                       (Pair (Real 0) (Real $ -0.5))
-         in case greensRatio (evalNames target) proposal t of
+         in case greensRatio (evalNames target5a) proposal5a t of
               Just r -> print r
               Nothing -> putStrLn "eval5a: could not calculate acceptance ratio"
 
 
 -- | Evaluation 5b: MH-sampling using reversible-jump proposals
 ---------------------------------------------------------------
--- TODO
 
+type RPlusR2 = 'HEither 'HReal R2
+
+target5b :: CH (Term ('HMeasure RPlusR2))
+target5b = do m1 <- bind stdNormal $ \x -> return (Dirac (Inl x))
+              m2 <- bind stdNormal $ \y ->
+                    bind stdNormal $ \z ->
+                    return $ Dirac (Inr (Pair y z))
+              return (mplus_ m1 m2)
+
+proposal5b :: Term RPlusR2 -> CH (Term ('HMeasure RPlusR2))
+proposal5b p = do let s = Real 0.1
+                  m1 <- letinl p $ \x ->
+                        bind (Normal x s) $ \x1 ->
+                        bind (Normal x s) $ \x2 ->
+                        return $ Dirac (Inr (Pair x1 x2))
+                  m2 <- letinr p $ \x ->
+                        bind (Normal (frst x `add` scnd x) s) $ \x' ->
+                        return $ Dirac (Inl x')
+                  return (mplus_ m1 m2)
+
+eval5b :: IO ()
+eval5b = case greensRatio (evalNames target5b) proposal5b (Var (V "t")) of
+           Just r -> print r
+           Nothing -> putStrLn "eval5b: could not calculate acceptance ratio"
+                      
 
 -- | Evaluation 6: belief update using a clamped observation
 ------------------------------------------------------------

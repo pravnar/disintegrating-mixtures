@@ -876,13 +876,37 @@ bindx :: (Sing a, Sing b)
       => Term ('HMeasure a)
       -> (Term a -> CH (Term ('HMeasure b)))
       -> CH (Term ('HMeasure ('HPair a b)))
-bindx = bindWithFun (\a b -> Pair a b)
+bindx = bindWithFun (\a b -> Pair a b)        
 
 productM :: (Sing a, Sing b)
          => Term ('HMeasure a)
          -> Term ('HMeasure b)
          -> CH (Term ('HMeasure ('HPair a b)))
 productM m = bindx m . (const.return)
+
+letinl :: (Sing a, Sing b, Sing c)
+       => Term ('HEither a b)
+       -> (Term a -> CH (Term ('HMeasure c)))
+       -> CH (Term ('HMeasure c))
+letinl e k = do d <- freshVar "dummy"
+                addVarsIn e
+                kd <- k (Var d)
+                addVarsIn kd
+                x <- freshVar "nl"
+                kx <- k (Var x)
+                return $ Do (LetInl x e) kx
+
+letinr :: (Sing a, Sing b, Sing c)
+       => Term ('HEither a b)
+       -> (Term b -> CH (Term ('HMeasure c)))
+       -> CH (Term ('HMeasure c))
+letinr e k = do d <- freshVar "dummy"
+                addVarsIn e
+                kd <- k (Var d)
+                addVarsIn kd
+                x <- freshVar "nr"
+                kx <- k (Var x)
+                return $ Do (LetInr x e) kx
 
 emptyNames :: Names
 emptyNames = Names 0 empty           
