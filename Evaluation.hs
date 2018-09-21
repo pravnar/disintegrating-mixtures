@@ -12,7 +12,7 @@ import Helpers
 -- The measure is clamped at 0 and 1
 clampedStdNorm :: CH (Term ('HMeasure 'HReal))
 clampedStdNorm = bind stdNormal $ \n ->
-                 return $ Dirac (max_ (Real 0) (min_ (Real 1) n))
+                 dirac (max_ (Real 0) (min_ (Real 1) n))
 
 -- The base measure: mix tt [0,1]
 mixT01 :: Base 'HReal
@@ -32,7 +32,7 @@ eval1 = do let model = clampedStdNorm >>= pairWithUnit
 -- This is `normal 3 2`, also clamped at 0 and 1
 clampedNorm :: CH (Term ('HMeasure 'HReal))
 clampedNorm = bind (Normal (Real 3) (Real 2)) $ \n ->
-              return $ Dirac (max_ (Real 0) (min_ (Real 1) n))
+              dirac (max_ (Real 0) (min_ (Real 1) n))
 
 eval2 :: IO ()
 eval2 = let point = Real 0.5
@@ -72,8 +72,8 @@ target5a = mckay >>= \m ->
 
 proposal5a :: Term R2 -> CH (Term ('HMeasure R2))
 proposal5a p = let (x,y) = (frst p, scnd p)
-               in do m1 <- bind (Normal x (Real 0.1)) (\x' -> return (Dirac (Pair x' y)))
-                     m2 <- bind (Normal y (Real 0.1)) (\y' -> return (Dirac (Pair x y')))
+               in do m1 <- bind (Normal x (Real 0.1)) (\x' -> dirac (Pair x' y))
+                     m2 <- bind (Normal y (Real 0.1)) (\y' -> dirac (Pair x y'))
                      return (mplus_ m1 m2)
 
 eval5a :: IO ()
@@ -90,10 +90,10 @@ eval5a = let t = Pair (Pair (Real 0) (Real    0.5))
 type RPlusR2 = 'HEither 'HReal R2
 
 target5b :: CH (Term ('HMeasure RPlusR2))
-target5b = do m1 <- bind stdNormal $ \x -> return (Dirac (Inl x))
+target5b = do m1 <- bind stdNormal $ \x -> dirac (Inl x)
               m2 <- bind stdNormal $ \y ->
                     bind stdNormal $ \z ->
-                    return $ Dirac (Inr (Pair y z))
+                    dirac (Inr (Pair y z))
               return (mplus_ m1 m2)
 
 proposal5b :: Term RPlusR2 -> CH (Term ('HMeasure RPlusR2))
@@ -101,10 +101,10 @@ proposal5b p = do let s = Real 0.1
                   m1 <- letinl p $ \x ->
                         bind (Normal x s) $ \x1 ->
                         bind (Normal x s) $ \x2 ->
-                        return $ Dirac (Inr (Pair x1 x2))
+                        dirac (Inr (Pair x1 x2))
                   m2 <- letinr p $ \x ->
                         bind (Normal (frst x `add` scnd x) s) $ \x' ->
-                        return $ Dirac (Inl x')
+                        dirac (Inl x')
                   return (mplus_ m1 m2)
 
 eval5b :: IO ()
@@ -119,7 +119,7 @@ eval5b = case greensRatio (evalNames target5b) proposal5b (Var (V "t")) of
 tobit :: CH (Term ('HMeasure ('HPair 'HReal 'HReal)))
 tobit = bind (Normal (Real 3) (Real 2)) $ \x ->
         bind (Normal x (Real 1)) $ \y ->
-        return $ Dirac (Pair x (max_ (Real 0) (min_ (Real 1) y)))
+        dirac (Pair x (max_ (Real 0) (min_ (Real 1) y)))
          
 eval6 :: IO ()
 eval6 = check (evalNames tobit) mixT01

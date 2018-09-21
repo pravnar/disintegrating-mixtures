@@ -908,6 +908,9 @@ letinr e k = do d <- freshVar "dummy"
                 kx <- k (Var x)
                 return $ Do (LetInr x e) kx
 
+dirac :: (Sing a) => Term a -> CH (Term ('HMeasure a))
+dirac = return . Dirac
+
 emptyNames :: Names
 emptyNames = Names 0 empty           
 
