@@ -128,4 +128,59 @@ eval6 = check (evalNames tobit) mixT01
 
 -- | Evaluation 7: Gibbs-sampling a discrete-continuous mixture
 ---------------------------------------------------------------
--- TODO
+
+type R3 = 'HPair 'HReal R2
+
+tobit3D :: CH (Term ('HMeasure R3))
+tobit3D = let clamp y = max_ (Real 0) (min_ (Real 1) y)
+          in bind (Normal (Real 3) (Real 2)) $ \x ->
+             bind (Normal x (Real 1)) $ \y1' ->
+             bind (Normal x (Real 1)) $ \y2' ->
+             bind (Normal x (Real 1)) $ \y3' ->
+             bind (Dirac (clamp y1')) $ \y1 ->
+             bind (Dirac (clamp y2')) $ \y2 ->
+             bind (Dirac (clamp y3')) $ \y3 ->
+             dirac (Pair y1 (Pair y2 y3))
+
+-- | We will use disintegration to obtain the full conditional
+-- distributions for Gibbs sampling.
+--
+-- Now our disintegrator always conditions on the first dimension of
+-- the input joint distribution. Our full conditional distributions
+-- will each condition on a pair of variables.
+--
+-- Thus we will define helper functions that re-order the variables in
+-- the target (tobit3D)
+
+-- Re-order so that we can condition on the pair (y2,y3)
+obs23 :: CH (Term ('HMeasure ('HPair R2 'HReal)))
+obs23 = tobit3D >>= liftMeasure switch
+
+-- Re-order so that we can condition on the pair (y1,y3)
+obs13 :: CH (Term ('HMeasure ('HPair R2 'HReal)))
+obs13 = tobit3D >>= \model -> bind model $ \p ->
+        dirac (Pair (Pair (frst p) (scnd (scnd p))) (frst (scnd p)))
+
+-- Re-order so that we can condition on the pair (y1,y2)
+obs12 :: CH (Term ('HMeasure ('HPair R2 'HReal)))
+obs12 = tobit3D >>= \model -> bind model $ \p ->
+        dirac (Pair (Pair (frst p) (frst (scnd p))) (scnd (scnd p)))
+
+base6 :: Base R2
+base6 = Bindx mixT01 (const mixT01) -- ^ 2D-discrete-continuous mixture
+
+gibbs :: Term R3 -> CH (Term ('HMeasure R3))
+gibbs p = do model23 <- obs23
+             model13 <- obs13
+             model12 <- obs12
+             case condition model23 base6 (scnd p) of
+               Just m1 -> bind m1 $ \q1 ->
+                          case condition model13 base6 (Pair q1 (scnd (scnd p))) of
+                            Just m2 -> bind m2 $ \q2 ->
+                                       case condition model12 base6 (Pair q1 q2) of
+                                         Just m3 -> bind m3 $ \q3 ->
+                                                    dirac (Pair q1 (Pair q2 q3))
+                                         Nothing -> error "gibbs: conditional3 failed"
+                            Nothing -> error "gibbs: conditional2 failed"
+               Nothing -> error "gibbs: conditional1 failed"
+                           

@@ -195,9 +195,28 @@ fromTrace (Lub t t') = case fromTrace t of
 choosePosterior :: (Term a -> Trace (Term ('HMeasure b), c)) -> Term a -> Maybe (Term ('HMeasure b))
 choosePosterior tracekern t = fromTrace (tracekern t) >>= return . fst
 
+condition :: (Sing a, Sing b)
+          => Term ('HMeasure ('HPair a b))
+          -> Base a
+          -> Term a
+          -> Maybe (Term ('HMeasure b))
+condition m b = choosePosterior (disintegrate m b)
+
 principalBase :: (Sing a, Sing b, Inferrable a)
               => Term ('HMeasure ('HPair a b)) -> Term a -> Maybe (Base a)
 principalBase m t = fromTrace (infer m t) >>= return . snd
+
+type Ratio = (Term ('HMeasure 'HUnit), Term ('HMeasure 'HUnit))
+    
+density :: (Sing a, Inferrable a)
+        => Term ('HMeasure a) -> Term ('HMeasure a) -> Term a -> Maybe Ratio
+density m n t = do let (m',n') = withDiffNames (pairWithUnit m) (pairWithUnit n)
+                   bm <- principalBase m' t
+                   bn <- principalBase n' t
+                   let b = bplusExt bm bn                       
+                   d1 <- choosePosterior (disintegrate m' b) t
+                   d2 <- choosePosterior (disintegrate n' b) t
+                   return (d1,d2)                    
 
 allBases :: (Sing a, Sing b, Inferrable a)
          => Term ('HMeasure ('HPair a b)) -> Term a -> Trace (Base a)
@@ -215,19 +234,6 @@ bplusExt b b' = case (typeOf_ b) of
           ext (Bindx  b1 f1) (Bindx  b2 f2) = Bindx  (bplusExt b1 b2) (\x -> bplusExt (f1 x) (f2 x))
           ext (Error_ e1)    (Error_ e2)    = Error_ (e1 ++ " and " ++ e2)
           ext _ _ = Error_ $ "bplusExt: trying to add " ++ show b ++ " and " ++ show b'
-
-type Ratio = (Term ('HMeasure 'HUnit), Term ('HMeasure 'HUnit))
-    
-
-density :: (Sing a, Inferrable a)
-        => Term ('HMeasure a) -> Term ('HMeasure a) -> Term a -> Maybe Ratio
-density m n t = do let (m',n') = withDiffNames (pairWithUnit m) (pairWithUnit n)
-                   bm <- principalBase m' t
-                   bn <- principalBase n' t
-                   let b = bplusExt bm bn                       
-                   d1 <- choosePosterior (disintegrate m' b) t
-                   d2 <- choosePosterior (disintegrate n' b) t
-                   return (d1,d2)
 
 greensRatio :: (Sing b, Inferrable b)
             => Term ('HMeasure b)
