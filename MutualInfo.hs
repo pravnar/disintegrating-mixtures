@@ -54,6 +54,9 @@ densMI nm = let (mu,nu) = evalNames (do mu <- nm
                                         return (mu,nu))
             in density mu nu
 
+-- | Here we convert from core Hakaru to (mainline) Hakaru
+-- to experiment with applying algebraic simplifications provided by
+-- the mainline system
 test1 :: IO ()
 test1 = do let Just (num,denom) = densMI gao (Var obs)
                numH = toHakaruLam (TS.sPair TS.SReal TS.SReal) num
@@ -62,7 +65,9 @@ test1 = do let Just (num,denom) = densMI gao (Var obs)
                app11 = \e -> HP.app e (HP.pair one one)
            -- numSimpl <- S.simplifyDebug False 30 numH
            -- print $ PC.pretty numSimpl
-           let numTotal = E.total $ app11 numH
+           let numTotal = E.total $ app11 numH -- calculate the total
+                                               -- mass of a measure
+                                               -- (using integration)
                denTotal = E.total $ app11 denH
            numTotalSimpl <- S.simplifyDebug False 30 numTotal
            denTotalSimpl <- S.simplifyDebug False 30 denTotal

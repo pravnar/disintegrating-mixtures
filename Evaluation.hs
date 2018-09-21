@@ -22,8 +22,8 @@ eval1 :: IO ()
 eval1 = do let model = clampedStdNorm >>= pairWithUnit
                                    -- ^^^ make a product measure
            check (evalNames model) mixT01
-               -- ^^^^^^^^^^^^^^^ evaluate the State monad `CH` to
-               -- generate fresh variables
+               -- ^^^^^^^^^ evaluate the State monad `CH` to generate
+               -- fresh variables
 
 
 -- | Evaluation 2: density of two clamped normals wrt each other
