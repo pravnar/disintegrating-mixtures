@@ -15,6 +15,7 @@ import Data.Maybe (catMaybes, fromMaybe, fromJust)
 import Data.Set as S (empty, union, Set(..), unions)
 import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.HashMap.Strict as M
+import Prelude hiding (div)
 -- import Debug.Trace
 
 -- | For dealing with Hakaru types
@@ -582,6 +583,9 @@ mul (Real  1)  e        = e
 mul  e        (Real  1) = e
 mul  e1        e2       = Mul e1 e2
 
+div :: Term 'HReal -> Term 'HReal -> Term 'HReal
+div e e' = mul e (reciprocal e')
+
 frst :: (Sing a, Sing b) => Term ('HPair a b) -> Term a
 frst (Pair a _) = a
 frst e          = Fst e
@@ -859,7 +863,7 @@ bindWithFun c m k = do d <- freshVar "dummy"
                        addVarsIn m
                        kd <- k (Var d)
                        addVarsIn kd
-                       x <- freshVar "B-263-54-"
+                       x <- freshVar "x"
                        y <- freshVar "y"
                        kx <- k (Var x)
                        return $ do_ [ x :<~ m
@@ -911,6 +915,12 @@ letinr e k = do d <- freshVar "dummy"
 dirac :: (Sing a) => Term a -> CH (Term ('HMeasure a))
 dirac = return . Dirac
 
+uniform :: Term 'HReal -> Term 'HReal -> CH (Term ('HMeasure 'HReal))
+uniform l r = bind Lebesgue $ \x ->
+              letinl (Less l x) $ \_ ->
+              letinl (Less x r) $ \_ ->
+              dirac x              
+
 emptyNames :: Names
 emptyNames = Names 0 empty           
 
@@ -919,4 +929,3 @@ evalNames n = evalState n emptyNames
 
 withDiffNames :: CH a -> CH b -> (a,b)
 withDiffNames na nb = evalNames (liftM2 (,) na nb)
-

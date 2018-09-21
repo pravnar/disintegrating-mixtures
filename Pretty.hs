@@ -121,6 +121,7 @@ instance Pretty (Term a) where
     pp _ (Var v) = pretty v
     pp p (Jacobian f b t) = ppFun p "jacobian" [ppArg f, ppArg b, ppArg t]
     pp _ (Error e) = sep [text "err:", text e]
+    pp p (Total e) = ppFun p "total" [ppArg e]
 
 ppLam :: Int -> Term a -> Base b -> Doc
 ppLam p x body = parens (p > 9) $

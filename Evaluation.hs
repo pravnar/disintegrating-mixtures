@@ -51,18 +51,44 @@ eval2 = let point = Real 0.5
 
 -- | Evaluation 4: importance sampling with a discrete-continuous prior
 -----------------------------------------------------------------------
--- TODO
 
+mckayDens :: Term 'HReal -> Term 'HReal
+mckayDens x = let (c1,c2) = (Real 0.4, Real 0.08)
+              in Exp $         (c1 `mul` (square (x `minus` c1)))
+                       `minus` (c2 `mul` (square (square x)))
+
+-- A modified version of the mckay distribution below, where the
+-- support is restricted to [0,1], with non-zero mass at 0 and 1
+target4 :: CH (Term ('HMeasure 'HReal))
+target4 = uniform (Real 0) (Real 1) >>= \unif01 ->
+          bind unif01 $ \x ->
+          return $ msum_ [ weight (mckayDens x) (Dirac x)
+                         , weight (Real 0.37)   (Dirac (Real 0))
+                         , weight (Real 0.42)   (Dirac (Real 1)) ]
+
+importance :: (Sing a, Inferrable a)
+           => Term ('HMeasure a)
+           -> Term ('HMeasure a)
+           -> CH (Term ('HMeasure ('HPair a 'HReal)))
+importance target proposal =
+    bind proposal $ \x ->
+    case density target proposal x of
+      Just (n,d) -> dirac $ Pair x (Total n `Helpers.div` Total d)
+      Nothing    -> error "importance: density failed"
+
+eval4 :: IO ()
+eval4 = let sampler = do target <- target4
+                         proposal <- clampedStdNorm
+                         importance target proposal
+        in print $ evalNames sampler
+                    
 
 -- | Evaluation 5a: MH-sampling using single-site proposals
 -----------------------------------------------------------
 
 mckay :: CH (Term ('HMeasure 'HReal))
 mckay = bind Lebesgue $ \x ->
-        let (c1,c2) = (Real 0.4, Real 0.08)
-        in return $ weight (Exp $        (c1 `mul` (square (x `minus` c1)))
-                                 `minus` (c2 `mul` (square (square x))))
-                           (Dirac x)
+        return $ weight (mckayDens x) (Dirac x)
 
 type R2 = 'HPair 'HReal 'HReal
     
@@ -184,3 +210,5 @@ gibbs p = do model23 <- obs23
                             Nothing -> error "gibbs: conditional2 failed"
                Nothing -> error "gibbs: conditional1 failed"
                            
+eval7 :: IO ()
+eval7 = print $ evalNames $ gibbs $ Pair (Real 1.1) $ Pair (Real 1.2) (Real 1.3)

@@ -111,6 +111,8 @@ data Term a where
     Jacobian :: Invertible -> Base 'HReal -> Term 'HReal -> Term 'HReal
     Error    :: (Sing e) => String         -> Term e
 
+    Total    :: (Sing a) => Term ('HMeasure a) -> Term 'HReal
+    -- ^ TODO: handle this everywhere!
 
 -- | Base measures                
 ----------------------------------------------------------------------
@@ -283,6 +285,7 @@ varsIn (MPlus m n)          = varsIn m `union` varsIn n
 varsIn (Var x)              = singleton (name x)
 varsIn (Jacobian _ b e)     = varsInBase b `union` varsIn e
 varsIn (Error _)            = S.empty
+varsIn (Total e)            = varsIn e
 
 varsInBase :: Base a -> Set String
 varsInBase (Var_ _ es)    = unions [varsIn t | IS t <- es]
