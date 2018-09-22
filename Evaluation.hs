@@ -2,7 +2,7 @@
 
 module Evaluation where
 
-import Tests
+import UserInterface
 import Syntax
 import Helpers
 
@@ -18,6 +18,8 @@ clampedStdNorm = bind stdNormal $ \n ->
 mixT01 :: Base 'HReal
 mixT01 = Mixture True [Real 0, Real 1]
 
+-- | Print the output of base-checking disintegration
+-- The `check` function is defined in UserInterface.hs
 eval1 :: IO ()
 eval1 = do let model = clampedStdNorm >>= pairWithUnit
                                    -- ^^^ make a product measure
@@ -34,19 +36,23 @@ clampedNorm :: CH (Term ('HMeasure 'HReal))
 clampedNorm = bind (Normal (Real 3) (Real 2)) $ \n ->
               dirac (max_ (Real 0) (min_ (Real 1) n))
 
+-- | Use our /unrestricted/ density calculator, where the base measure can
+-- be a core Hakaru measure
 eval2 :: IO ()
 eval2 = let point = Real 0.5
                       -- ^^^ calculate density at this point
         in case density (evalNames clampedStdNorm) (evalNames clampedNorm) point of
-             -- ^^^^^^^ use /unrestricted/ density calculator, where
-             -- the base measure can be a core Hakaru measure
+             -- ^^^^^^^ defined in UserInterface.hs
              Just r -> print r
              Nothing -> putStrLn "eval2: could not find density"
 
                         
 -- | Evaluation 3: mutual information in a discrete-continuous mixture
 ----------------------------------------------------------------------
--- See MutualInfo.hs
+-- See `test1` in MutualInfo.hs
+--
+-- We put this in a separate file because we use (mainline) Hakaru to
+-- simplify the output of our new disintegrator
 
 
 -- | Evaluation 4: importance sampling with a discrete-continuous prior
@@ -66,20 +72,14 @@ target4 = uniform (Real 0) (Real 1) >>= \unif01 ->
                          , weight (Real 0.37)   (Dirac (Real 0))
                          , weight (Real 0.42)   (Dirac (Real 1)) ]
 
-importance :: (Sing a, Inferrable a)
-           => Term ('HMeasure a)
-           -> Term ('HMeasure a)
-           -> CH (Term ('HMeasure ('HPair a 'HReal)))
-importance target proposal =
-    bind proposal $ \x ->
-    case density target proposal x of
-      Just (n,d) -> dirac $ Pair x (Total n `Helpers.div` Total d)
-      Nothing    -> error "importance: density failed"
-
+-- | Derive and print an importance sampler for this example
+-- We use the unrestricted density calculator to obtain the
+-- "importance weight" for each sample.
 eval4 :: IO ()
 eval4 = let sampler = do target <- target4
                          proposal <- clampedStdNorm
                          importance target proposal
+                      -- ^^^^^^^^^^ defined in UserInterface.hs
         in print $ evalNames sampler
                     
 
@@ -102,13 +102,15 @@ proposal5a p = let (x,y) = (frst p, scnd p)
                      m2 <- bind (Normal y (Real 0.1)) (\y' -> dirac (Pair x y'))
                      return (mplus_ m1 m2)
 
+-- | Derive and print a Metropolis-Hastings-Green kernel for this example.
+--
+-- The `mhg` function calculates Green's ratio, i.e., the generic
+-- acceptance ratio for MCMC sampling, using our unrestricted density
+-- calculator.
 eval5a :: IO ()
-eval5a = let t = Pair (Pair (Real 0) (Real    0.5))
-                      (Pair (Real 0) (Real $ -0.5))
-         in case greensRatio (evalNames target5a) proposal5a t of
-              Just r -> print r
-              Nothing -> putStrLn "eval5a: could not calculate acceptance ratio"
-
+eval5a = let t = Pair (Real 0) (Real 0.5)
+         in print $ evalNames $ mhg (evalNames target5a) proposal5a t
+                             -- ^^^ defined in UserInterface.hs
 
 -- | Evaluation 5b: MH-sampling using reversible-jump proposals
 ---------------------------------------------------------------
@@ -133,10 +135,14 @@ proposal5b p = do let s = Real 0.1
                         dirac (Inl x')
                   return (mplus_ m1 m2)
 
+-- | Derive and print a Metropolis-Hastings-Green kernel for this example.
+-- 
+-- In this example the state space is RPlusR2.  The same `mhg`
+-- function can be used here as in the previous case, where the state
+-- space was R2.
 eval5b :: IO ()
-eval5b = case greensRatio (evalNames target5b) proposal5b (Var (V "t")) of
-           Just r -> print r
-           Nothing -> putStrLn "eval5b: could not calculate acceptance ratio"
+eval5b = let t = Inl (Real 0.2)
+         in print $ evalNames $ mhg (evalNames target5b) proposal5b t
                       
 
 -- | Evaluation 6: belief update using a clamped observation
@@ -195,6 +201,9 @@ obs12 = tobit3D >>= \model -> bind model $ \p ->
 base6 :: Base R2
 base6 = Bindx mixT01 (const mixT01) -- ^ 2D-discrete-continuous mixture
 
+-- | Write a Gibbs sampler for this example
+-- We use `condition`, defined in UserInterface.hs, to calculate the
+-- full conditional distributions using disintegration.
 gibbs :: Term R3 -> CH (Term ('HMeasure R3))
 gibbs p = do model23 <- obs23
              model13 <- obs13

@@ -8,7 +8,7 @@
 module Helpers where
 
 import Syntax
-import Pretty    
+import Pretty
 import Control.Monad.State
 import Data.List (find, nub)
 import Data.Maybe (catMaybes, fromMaybe, fromJust)
@@ -608,6 +608,9 @@ normalDensity m s x =
     frac (Exp . Neg $ frac (square $ minus x m) (double (square s)))
          (Mul (Sqrt (double Pi)) s)
 
+stdNormal :: Term ('HMeasure 'HReal)
+stdNormal = Normal (Real 0) (Real 1)         
+
 true_ :: TermHBool
 true_ = Inl Unit
 
@@ -919,7 +922,10 @@ uniform :: Term 'HReal -> Term 'HReal -> CH (Term ('HMeasure 'HReal))
 uniform l r = bind Lebesgue $ \x ->
               letinl (Less l x) $ \_ ->
               letinl (Less x r) $ \_ ->
-              dirac x              
+              dirac x
+                    
+stdUniform :: CH (Term ('HMeasure 'HReal))
+stdUniform = uniform (Real 0) (Real 1)
 
 emptyNames :: Names
 emptyNames = Names 0 empty           

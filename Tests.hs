@@ -3,64 +3,12 @@
 module Tests where
 
 import Syntax
-import Pretty
-import Helpers    
-import Disintegrate
-import Control.Monad.State
--- import           Data.List (groupBy)
-import           Text.PrettyPrint hiding (parens)
-import qualified Text.PrettyPrint as PP (parens)
-import System.Process (callCommand)
+import Helpers
+
 import Test.HUnit
 -- import           Debug.Trace
 
-obs :: Var
-obs = V "t"
-
-title :: Term ('HMeasure ('HPair a b)) -> Base a -> Term a -> Doc
-title prog base t = text "disintegrate" <+> (PP.parens (pretty prog) $$
-                                             PP.parens (pretty base) $$
-                                             PP.parens (pretty obs))
-
-format :: (Displayable a b) => Doc -> Trace (a, b) -> String
-format call anss = render $ space $$ call $$ text "==>"
-                   $+$ pretty (display anss) $+$ text (replicate 80 '-')
-
-check :: (Sing a, Sing b) => Term ('HMeasure ('HPair a b)) -> Base a -> IO ()
-check prog base = putStrLn $ format (title prog base t) (disintegrate prog base t)
-    where t = Var obs
-
-constraintsOn :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> Term a -> IO ()
-constraintsOn prog t = print (fmap snd $ disintegrate prog b t)
-    where b = fst (base 0) []
-
-infer :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> Term a -> Trace (Term ('HMeasure b), Base a)
-infer prog t = let b      = fst (base 0) []
-                   anss   = disintegrate prog b t
-                   initState e = (Names 0 (varsIn e), [])
-                   sat (e,cs) = (e, evalState (mapM solve cs) (initState e))
-                   inferred = fmap (second (findBase b . group) . sat) anss
-             in inferred
-
-printInferred :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> IO ()
-printInferred prog = let (b,t)  = (fst (base 0) [], Var obs)
-                     in putStrLn $ format (title prog b t) (infer prog t)
-
--- | Draw a graph of the disintegration trace and save it in a pdf file
-viz :: (Sing a, Sing b) => FilePath -> Term ('HMeasure ('HPair a b)) -> Base a -> IO ()
-viz file prog base
-    = do let t       = Var obs
-             out     = display (disintegrate prog base t)
-             dir     = "./plots/"
-             dotFile = dir++file++".dot"
-             pdfFile = dir++file++".pdf"
-         writeFile dotFile (traceToDot (title prog base t) out)
-         callCommand $ "dot -Tpdf " ++ dotFile ++ " > " ++ pdfFile
-
 type Model a b = Term ('HMeasure ('HPair a b))
-
-stdNormal :: Term ('HMeasure 'HReal)
-stdNormal = Normal (Real 0) (Real 1)
 
 freeVarFail :: Model 'HReal 'HUnit
 freeVarFail = Dirac (Pair (Var (V "x")) Unit)
@@ -183,68 +131,6 @@ eitherTest = Dirac (Pair (Inl Unit) Unit)
 
 -- | MCMC
 --------------------------------------------------------------------------------
-
-fromTrace :: Trace a -> Maybe a
-fromTrace Bot        = Nothing
-fromTrace (Return a) = Just a
-fromTrace (Step _ t) = fromTrace t
-fromTrace (Lub t t') = case fromTrace t of
-                         Just a  -> Just a
-                         Nothing -> fromTrace t'
-
-choosePosterior :: (Term a -> Trace (Term ('HMeasure b), c)) -> Term a -> Maybe (Term ('HMeasure b))
-choosePosterior tracekern t = fromTrace (tracekern t) >>= return . fst
-
-condition :: (Sing a, Sing b)
-          => Term ('HMeasure ('HPair a b))
-          -> Base a
-          -> Term a
-          -> Maybe (Term ('HMeasure b))
-condition m b = choosePosterior (disintegrate m b)
-
-principalBase :: (Sing a, Sing b, Inferrable a)
-              => Term ('HMeasure ('HPair a b)) -> Term a -> Maybe (Base a)
-principalBase m t = fromTrace (infer m t) >>= return . snd
-
-type Ratio = (Term ('HMeasure 'HUnit), Term ('HMeasure 'HUnit))
-    
-density :: (Sing a, Inferrable a)
-        => Term ('HMeasure a) -> Term ('HMeasure a) -> Term a -> Maybe Ratio
-density m n t = do let (m',n') = withDiffNames (pairWithUnit m) (pairWithUnit n)
-                   bm <- principalBase m' t
-                   bn <- principalBase n' t
-                   let b = bplusExt bm bn                       
-                   d1 <- choosePosterior (disintegrate m' b) t
-                   d2 <- choosePosterior (disintegrate n' b) t
-                   return (d1,d2)                    
-
-allBases :: (Sing a, Sing b, Inferrable a)
-         => Term ('HMeasure ('HPair a b)) -> Term a -> Trace (Base a)
-allBases m t = fmap snd $ infer m t
-
-switch :: (Sing a, Sing b) => Term ('HPair a b) -> Term ('HPair b a)
-switch p = Pair (scnd p) (frst p)
-
-bplusExt :: (Sing a) => Base a -> Base a -> Base a
-bplusExt b b' = case (typeOf_ b) of
-                  TReal -> bplus b b'
-                  _ -> ext b b'
-    where ext (Dirac_ Unit)  (Dirac_ Unit)  = Dirac_ Unit
-          ext (Either l1 r1) (Either l2 r2) = Either (bplusExt l1 l2) (bplusExt r1 r2)
-          ext (Bindx  b1 f1) (Bindx  b2 f2) = Bindx  (bplusExt b1 b2) (\x -> bplusExt (f1 x) (f2 x))
-          ext (Error_ e1)    (Error_ e2)    = Error_ (e1 ++ " and " ++ e2)
-          ext _ _ = Error_ $ "bplusExt: trying to add " ++ show b ++ " and " ++ show b'
-
-greensRatio :: (Sing b, Inferrable b)
-            => Term ('HMeasure b)
-            -> (Term b -> CH (Term ('HMeasure b)))
-            -> Term ('HPair b b)
-            -> Maybe Ratio
-greensRatio target proposal = let (m,mrev) = evalNames $
-                                             do m    <- bindx target proposal
-                                                mrev <- liftMeasure switch m
-                                                return (m,mrev)
-                              in density mrev m
 
 singleSiteProposal :: Model ('HPair ('HPair 'HReal 'HReal) ('HPair 'HReal 'HReal)) 'HUnit
 singleSiteProposal = do_ [ x :<~ stdNormal
