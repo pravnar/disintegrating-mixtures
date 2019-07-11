@@ -866,7 +866,7 @@ bindWithFun c m k = do d <- freshVar "dummy"
                        addVarsIn m
                        kd <- k (Var d)
                        addVarsIn kd
-                       x <- freshVar "x"
+                       x <- freshVar "B-263-54-"
                        y <- freshVar "y"
                        kx <- k (Var x)
                        return $ do_ [ x :<~ m

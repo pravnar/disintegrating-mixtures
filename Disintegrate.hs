@@ -31,8 +31,8 @@ disintegrate term base obs = fmap output go
 -- Success is a set of conditions (repr. as a sequence of
 -- guards) under which a density exists
 
--- divide :: (Sing a) => Base a -> Base a -> Term a -> D [Guard Var]
-divide :: Base 'HReal -> Base 'HReal -> Term 'HReal -> D [Guard Var]
+divide :: (Sing a) => Base a -> Base a -> Term a -> D [Guard Var]
+-- divide :: Base 'HReal -> Base 'HReal -> Term 'HReal -> D [Guard Var]
 divide (Dirac_ e)       (Dirac_ e')       _ = ifYesElse (return []) bot (termEq e e')
 divide (Dirac_ _)       Lebesgue_         _ = bot
 divide Lebesgue_        (Dirac_ _)        _ = bot
@@ -161,14 +161,16 @@ constrainValue e b t c h = track "constrainValue" st $ (<|) e b t c h
                           case v of
                             Pair e' _ -> constrainValue e' b t c h'
                             _ -> if (atomic v h')
-                                 then bot -- divide (Dirac_ (Fst v)) b t >>= emit # (c h')
+                                 then -- bot
+                                      divide (Dirac_ (Fst v)) b t >>= emit # (c h')
                                  else return (Error "constrainValue.fst: \
                                                     \unknown HPair hnf")
 (<|) (Snd e)    b t c h = flip (evaluate e) h $ \v h' ->
                           case v of
                             Pair _ e' -> constrainValue e' b t c h'
                             _ -> if (atomic v h')
-                                 then bot -- divide (Dirac_ (Snd v)) b t >>= emit # (c h')
+                                 then -- bot
+                                      divide (Dirac_ (Snd v)) b t >>= emit # (c h')
                                  else return (Error "constrainValue.snd: \
                                                     \unknown HPair hnf")
 (<|) (If e tb eb) b          t c h = let m = mplus_ (when_ e (Dirac tb)) (unless_ e (Dirac eb))
@@ -188,9 +190,11 @@ constrainValue e b t c h = track "constrainValue" st $ (<|) e b t c h
                                   (LetInl _ e0) -> evaluate (unsafeLeft e0) (\v0 -> outl v0 (\e -> constrainValue e b t c')) h1
                                   (LetInr _ e0) -> evaluate (unsafeRight e0) (\v0 -> outr v0 (\e -> constrainValue e b t c')) h1
                                   _ -> error "bwdEval let inl / inr undefined"
-                         Nothing        -> bot -- divide (Dirac_ (Var x)) b t >>= emit # (c h)
+                         Nothing        -> -- bot
+                                           divide (Dirac_ (Var x)) b t >>= emit # (c h)
 (<|) e       b t c h = if (hnf e h)
-                       then bot -- divide (Dirac_ e) b t >>= emit # (c h)
+                       then -- bot
+                            divide (Dirac_ e) b t >>= emit # (c h)
                        else return (Error "constrain value: unknown term")
 
 

@@ -4,6 +4,7 @@ module Tests where
 
 import Syntax
 import Helpers
+import UserInterface    
 
 import Test.HUnit
 -- import           Debug.Trace
@@ -108,6 +109,37 @@ gpa = Do (n :<~ Normal (Real 2) (Real 3))
                      (Dirac (Pair (Real 10) false_))))
     where n = V "n"
 
+gpaWu :: CH (Model 'HReal ('HEither 'HUnit 'HUnit))              
+gpaWu = uniform (Real 0) (Real 4) >>= \usaDist ->
+        uniform (Real 0) (Real 10) >>= \indiaDist ->
+        return $
+        mplus_ (Do (g :<~ mplus_ (weight (Real 0.01) (Dirac (Real 4)))
+                                 (weight (Real 0.99) usaDist))
+                   (Dirac (Pair (Var g) true_)))
+               (Do (g :<~ mplus_ (weight (Real 0.01) (Dirac (Real 10)))
+                                 (weight (Real 0.99) indiaDist))
+                   (Dirac (Pair (Var g) false_)))
+    where g = V "g"
+
+-- | 2D Gaussian Mixture Model with 2 clusters
+-- We want to do unsupervised learning, i.e., having observed two points
+-- we want to infer a distribution over their cluster labels and the cluster means
+
+type R2 = 'HPair 'HReal 'HReal
+type B2 = 'HPair HBool HBool
+    
+gmm :: CH (Model R2 ('HPair B2 R2))
+gmm = bind meandist $ \mu1 ->
+      bind meandist $ \mu2 ->
+      bind faircoin $ \b1 ->
+      bind faircoin $ \b2 ->
+      bind (mixture b1 mu1 mu2) $ \p1 ->
+      bind (mixture b2 mu1 mu2) $ \p2 ->
+      dirac $ Pair (Pair p1 p2) (Pair (Pair b1 b2) (Pair mu1 mu2))
+    where meandist = Normal (Real 2) (Real 3)
+          faircoin = bern_ (Real 0.5)
+          mixture b c1 c2 = if_ b (Normal c1 (Real 1)) (Normal c2 (Real 1))
+    
 clampNorm :: Model 'HReal 'HReal
 clampNorm = Do (n :<~ Normal (Real 2) (Real 3))
                (if_ (Less (Var n) (Real 0))
@@ -128,6 +160,20 @@ sqrNorm = Do (n :<~ Normal (Sqrt (Real 2.6)) (Sqrt (Real 0.1)))
 
 eitherTest :: Model ('HEither 'HUnit 'HUnit) 'HUnit
 eitherTest = Dirac (Pair (Inl Unit) Unit)
+
+sometimesPerturb :: Model ('HPair 'HReal 'HReal) 'HUnit
+sometimesPerturb = do_ [ x :<~ Normal (Real 0) (Real 1)
+                       , y :<~ mplus_ (Normal (Var x) (Real 1))
+                                      (Dirac (Var x)) ]
+                   (Dirac (Pair (Pair (Var x) (Var y)) Unit))
+    where (x, y) = (V "x", V "y")
+                  
+sometimesDouble :: Model ('HPair 'HReal 'HReal) 'HUnit
+sometimesDouble = do_ [ x :<~ Normal (Real 0) (Real 1)
+                      , y :<~ mplus_ (Dirac (double (Var x)))
+                                     (Dirac (Var x)) ]
+                   (Dirac (Pair (Pair (Var x) (Var y)) Unit))
+    where (x, y) = (V "x", V "y")                      
 
 -- | MCMC
 --------------------------------------------------------------------------------
@@ -259,7 +305,7 @@ twoDice = do_ [ x :<~ msum_ [Dirac (Real 1), Dirac (Real 2), Dirac (Real 3)]
               , r :<~ Dirac (If (Var d) (Var x :: Term 'HReal) (Var y)) ]
           (Dirac (Pair (Var r) (Var d)))
     where (x,y,r,d) = (V "x", V "y", V "r", V "d")
-
+                      
 
 -- | Testing equality on Hakaru terms
 ----------------------------------------------------------------------

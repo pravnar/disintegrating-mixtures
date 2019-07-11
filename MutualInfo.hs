@@ -5,7 +5,7 @@ module MutualInfo where
 
 import Syntax
 import Helpers
-import Tests
+import UserInterface
 import Hakaru
 
 import qualified Language.Hakaru.Simplify as S
@@ -58,7 +58,8 @@ densMI nm = let (mu,nu) = evalNames (do mu <- nm
 -- to experiment with applying algebraic simplifications provided by
 -- the mainline system
 test1 :: IO ()
-test1 = do let Just (num,denom) = densMI gao (Var obs)
+test1 = do let obs = V "t"
+               Just (num,denom) = densMI gao (Var obs)
                numH = toHakaruLam (TS.sPair TS.SReal TS.SReal) num
                denH = toHakaruLam (TS.sPair TS.SReal TS.SReal) denom
                one = HP.literal_ $ AST.LReal 1

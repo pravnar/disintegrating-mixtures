@@ -22,6 +22,7 @@ data H = HUnit
        | HPair H H
        | HMeasure H
 
+type HBool = 'HEither 'HUnit 'HUnit
 type TermHBool = Term ('HEither 'HUnit 'HUnit)
 
 data Type (a :: H) where
@@ -60,7 +61,7 @@ data Guard v where
     Factor  :: Term 'HReal -> Guard v
     LetInl  :: (Sing b) => v -> Term ('HEither a b) -> Guard v
     LetInr  :: (Sing a) => v -> Term ('HEither a b) -> Guard v
-    Divide  :: Base 'HReal -> Base 'HReal -> Term 'HReal -> Guard v
+    Divide  :: Base a -> Base a -> Term a -> Guard v
 
 -- TODO (maybe): add a type parameter
 newtype Var = V {name :: String} deriving (Eq)

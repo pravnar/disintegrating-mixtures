@@ -154,6 +154,7 @@ translate t = S.evalState (toHakaru t) []
 -- positions.
 toHakaruLam :: TS.Sing a -> Term b -> HakaruTerm (a DK.:-> HType b)
 toHakaruLam s e = let (e',vm) = S.runState (toHakaru e) []
+                      obs = V "t"
                       v = SV.Variable (Text.pack (name obs)) (nextID vm) s
                   in ABT.syn (AST.Lam_ AST.:$ ABT.bind v e' AST.:* AST.End)
 
