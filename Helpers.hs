@@ -915,6 +915,12 @@ letinr e k = do d <- freshVar "dummy"
                 kx <- k (Var x)
                 return $ Do (LetInr x e) kx
 
+factor :: (Sing a)
+       => Term 'HReal
+       -> CH (Term ('HMeasure a))
+       -> CH (Term ('HMeasure a))
+factor e m = m >>= \m' -> return (Do (Factor e) m')
+
 dirac :: (Sing a) => Term a -> CH (Term ('HMeasure a))
 dirac = return . Dirac
 
@@ -922,6 +928,7 @@ uniform :: Term 'HReal -> Term 'HReal -> CH (Term ('HMeasure 'HReal))
 uniform l r = bind Lebesgue $ \x ->
               letinl (Less l x) $ \_ ->
               letinl (Less x r) $ \_ ->
+              factor (reciprocal (minus r l)) $
               dirac x
                     
 stdUniform :: CH (Term ('HMeasure 'HReal))
