@@ -4,7 +4,8 @@ module Tests where
 
 import Syntax
 import Helpers
-import UserInterface    
+import UserInterface
+import Simplify
 
 import Test.HUnit
 -- import           Debug.Trace
