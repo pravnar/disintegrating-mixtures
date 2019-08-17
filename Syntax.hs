@@ -3,8 +3,10 @@
              KindSignatures,
              TypeOperators,
              TypeSynonymInstances,
+             FlexibleContexts,
              FlexibleInstances,
-             ExistentialQuantification #-}
+             ExistentialQuantification,
+             StandaloneDeriving #-}
 
 module Syntax where    
 import Control.Monad.State
@@ -31,6 +33,8 @@ data Type (a :: H) where
     TEither  :: Type a -> Type b -> Type ('HEither a b)
     TPair    :: Type a -> Type b -> Type ('HPair a b)
     TMeasure :: Type a -> Type ('HMeasure a)
+
+deriving instance Show (Type a)
 
 class Sing (a :: H) where
     sing :: Type a
