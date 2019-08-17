@@ -135,10 +135,12 @@ mhgWithLets target propK p =
     do proposal <- propK p
        bind proposal $ \q ->
            case greensRatio target propK (Pair p q) of
-             Just ratio -> letinl (Inl (ratio2Real ratio)
-                                  :: Term ('HEither 'HReal 'HReal)) $ \r ->
-                           letinl (Inl (min_ (Real 1) r)
-                                  :: Term ('HEither 'HReal 'HReal)) $ \a ->
+             Just ratio -> bind (Dirac (ratio2Real ratio)) $ \r ->
+                           bind (Dirac (min_ (Real 1) r))  $ \a ->
+                           -- letinl (Inl
+                           --        :: Term ('HEither 'HReal 'HReal)) $ \r ->
+                           -- letinl (Inl (min_ (Real 1) r)
+                           --        :: Term ('HEither 'HReal 'HReal)) $ \a ->
                            bind (bern_ a) $ \b ->
                            dirac $ if_ b q p
              Nothing    -> error "mhgWithLets: greensRatio failed"
