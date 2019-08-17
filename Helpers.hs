@@ -2,6 +2,7 @@
              DataKinds,
              RankNTypes,
              TypeSynonymInstances,
+             FlexibleContexts,
              FlexibleInstances,
              TypeOperators #-}
 
@@ -285,8 +286,9 @@ findDefault t dflt = do
   case findAssoc t assocs of
     Just (_, IS t') -> case jmEq (typeOf t) (typeOf t') of
                          Just Refl -> return t'
-                         Nothing   -> error ("Unequal types of associated terms "
-                                             ++ show t ++ " and " ++ show t')
+                         Nothing   -> error ("Unequal types of associated terms. "
+                                             ++ show t  ++ " has type " ++ (show $ typeOf t) ++ " while "
+                                             ++ show t' ++ " has type " ++ (show $ typeOf t'))
     Nothing         -> dflt
 
 type C = forall a. (Sing a) => Term a -> S (Term a) -> S (Term a)
@@ -609,7 +611,11 @@ normalDensity m s x =
          (Mul (Sqrt (double Pi)) s)
 
 stdNormal :: Term ('HMeasure 'HReal)
-stdNormal = Normal (Real 0) (Real 1)         
+stdNormal = Normal (Real 0) (Real 1)
+
+bern_ :: Term 'HReal -> Term ('HMeasure ('HEither 'HUnit 'HUnit))
+bern_ p = MPlus (Do (Factor p) (Dirac true_))
+                (Do (Factor (minus (Real 1) p)) (Dirac false_))
 
 true_ :: TermHBool
 true_ = Inl Unit
@@ -920,6 +926,19 @@ factor :: (Sing a)
        -> CH (Term ('HMeasure a))
        -> CH (Term ('HMeasure a))
 factor e m = m >>= \m' -> return (Do (Factor e) m')
+
+guard :: (Sing a)
+      => Guard Var
+      -> CH (Term ('HMeasure a))
+      -> CH (Term ('HMeasure a))
+guard g cm = cm >>= \m -> return (Do g m)
+
+guards :: (Sing a)
+      => [Guard Var]
+      -> CH (Term ('HMeasure a))
+      -> CH (Term ('HMeasure a))
+guards gs cm = cm >>= \m -> return (do_ gs m)
+
 
 dirac :: (Sing a) => Term a -> CH (Term ('HMeasure a))
 dirac = return . Dirac

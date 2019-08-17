@@ -278,10 +278,6 @@ noisyCorr = do_ [ x :<~ stdNormal
 
 -- | Boolean example
 ----------------------------------------------------------------------
-
-bern_ :: Term 'HReal -> Term ('HMeasure ('HEither 'HUnit 'HUnit))
-bern_ p = MPlus (Do (Factor p) (Dirac true_))
-                (Do (Factor (minus (Real 1) p)) (Dirac false_))
                     
 burglarAlarm :: Model ('HEither 'HUnit 'HUnit)
                       ('HEither 'HUnit 'HUnit)
