@@ -241,27 +241,7 @@ test3 = do_ [ x  :<~ stdNormal
             , y :<~ MPlus (Normal (Var x) (Real 0.1))
                           (Dirac (Var x')) ]
             (Dirac (Pair (Pair (Var x) (Var y)) Unit))
-    where (x,x',y) = (V "x", V "x'", V "y")
-         
-                     
-type NParamsType = 'HPair 'HReal 'HReal
-type OneNormal  = NParamsType
-type TwoNormals = 'HPair NParamsType NParamsType
-
-finiteMixtureModel :: Model 'HReal ('HEither OneNormal TwoNormals)
-finiteMixtureModel = MPlus (do_ [ m1 :<~ stdNormal
-                                , s1 :<~ stdNormal
-                                , x :<~ Normal (Var m1) (Var s1) ]
-                                (Dirac (Pair (Var x) (Inl (Pair (Var m1) (Var s1))))))
-                           (do_ [ m1 :<~ stdNormal
-                                , s1 :<~ stdNormal
-                                , m2 :<~ stdNormal
-                                , s2 :<~ stdNormal
-                                , x :<~ MPlus (Normal (Var m1) (Var s1))
-                                              (Normal (Var m2) (Var s2)) ]
-                                (Dirac (Pair (Var x) (Inr (Pair (Pair (Var m1) (Var s1))
-                                                                (Pair (Var m2) (Var s2)))))))
-    where (m1,s1,m2,s2,x) = (V "m1", V "s1", V "m2", V "s2", V "x")                            
+    where (x,x',y) = (V "x", V "x'", V "y")                             
 
 detCorr :: Model ('HPair 'HReal 'HReal) 'HUnit
 detCorr = do_ [ x :<~ stdNormal

@@ -258,3 +258,94 @@ eval8 = let x = Pair (Real 0.1) (Real 0.2)
            evalNames $
            mhgWithLets (fromJust target8) proposal5a x
                                        -- ^^^^^^^^^^ single-site
+
+-- See what base measure we deal with to calculate Green's ratio
+peek8 :: IO ()
+peek8 = let m    = bindx (fromJust target8) proposal5a
+            mrev = m >>= liftMeasure switch
+            m'   = m >>= pairWithUnit
+            mrev'= mrev >>= pairWithUnit
+        in do print $ allBases (evalNames m') $
+                      Pair (Pair (Real 0.37) (Real 0.42))
+                           (Pair (Real 0.39) (Real 0.19))
+              print $ allBases (evalNames mrev') $
+                      Pair (Pair (Real 0.37) (Real 0.42))
+                           (Pair (Real 0.39) (Real 0.19))
+
+
+-- | Evaluation 9: Reversible-jump MH for Finite Mixture Model
+--------------------------------------------------------------
+
+type NParamsType = 'HPair 'HReal 'HReal -- (mu, sigma^2)
+type OneNormal  = NParamsType
+type TwoNormals = 'HPair NParamsType NParamsType
+type FM = 'HEither OneNormal TwoNormals
+
+finiteMixtureModel :: Term ('HMeasure ('HPair 'HReal FM))
+finiteMixtureModel = MPlus (do_ [ m1 :<~ stdNormal
+                                , s1 :<~ stdNormal
+                                , n :<~ Normal (Var m1) (Var s1) ]
+                                (Dirac (Pair (Var n) (Inl (Pair (Var m1) (Var s1))))))
+                           (do_ [ m1 :<~ stdNormal
+                                , s1 :<~ stdNormal
+                                , m2 :<~ stdNormal
+                                , s2 :<~ stdNormal
+                                , n :<~ MPlus (Normal (Var m1) (Var s1))
+                                              (Normal (Var m2) (Var s2)) ]
+                                (Dirac (Pair (Var n) (Inr (Pair (Pair (Var m1) (Var s1))
+                                                                (Pair (Var m2) (Var s2)))))))
+    where (m1,s1,m2,s2,n) = (V "m1", V "s1", V "m2", V "s2", V "n")
+
+fmm :: CH (Term ('HMeasure ('HPair 'HReal FM)))
+fmm = do m1 <- bind stdNormal $ \mu ->
+               bind stdNormal $ \v ->
+               bind (Normal mu (sqrroot v)) $ \x ->
+               dirac (Pair x (Inl (Pair mu v)))
+         m2 <- bind stdNormal $ \mu1 ->
+               bind stdNormal $ \v1 ->
+               bind stdNormal $ \mu2 ->
+               bind stdNormal $ \v2 ->
+               bind (mplus_ (Normal mu1 (sqrroot v1))
+                            (Normal mu2 (sqrroot v2))) $ \x ->
+               dirac (Pair x (Inr (Pair (Pair mu1 v1) (Pair mu2 v2))))
+         return $ mplus_ m1 m2
+
+target9 :: CH (Maybe (Term ('HMeasure FM)))
+target9 = do m <- monadRightId <$> fmm
+             let t = Real 0.43
+             return $ do b <- principalBase m t
+                         condition m b t
+
+-- Moment matching with split-merge moves
+-- https://arxiv.org/pdf/1001.2055.pdf , eqs. 1.2.3 and 1.2.4
+proposal9 :: Term FM -> CH (Term ('HMeasure FM))
+proposal9 p = do let s = Real 0.1
+                 m1 <- letinl p $ \x ->
+                       bind (Dirac (frst x)) $ \mu ->
+                       bind (Dirac (scnd x)) $ \v  ->
+                       stdUniform >>= \unif ->
+                       bind unif $ \u  ->
+                       bind unif $ \u' ->
+                       bind (Dirac (mu `minus` (u `mul` (sqrroot $ double v)))) $ \mu1 ->
+                       bind (Dirac (mu `add`   (u `mul` (sqrroot $ double v)))) $ \mu2 ->
+                       bind (Dirac (u'                    `mul` ((Real 1) `minus` (square u)) `mul` v)) $ \v1 ->
+                       bind (Dirac (((Real 1) `minus` u') `mul` ((Real 1) `minus` (square u)) `mul` v)) $ \v2 ->
+                       dirac $ Inr $ Pair (Pair mu1 v1) (Pair mu2 v2)
+                 m2 <- letinr p $ \x ->
+                       bind (Dirac (frst x)) $ \muv1 ->
+                       bind (Dirac (frst muv1)) $ \mu1 ->
+                       bind (Dirac (scnd muv1)) $ \v1 ->
+                       bind (Dirac (scnd x)) $ \muv2 ->
+                       bind (Dirac (frst muv1)) $ \mu2 ->
+                       bind (Dirac (scnd muv1)) $ \v2 ->
+                       bind (Normal ((Real 0.5) `mul` (mu1 `add` mu2)) s) $ \mu ->
+                       bind (Dirac $ (Real 0.5) `mul` ((square mu1 `add` v1) `add` (square mu2 `add` v2))) $ \v ->
+                       dirac $ Inl $ Pair mu v
+                 return $ mplus_ m1 m2
+
+eval9 :: IO ()
+eval9 = let x = Inl (Pair (Real 2) (Real 3))
+        in print $
+           monadRightId $
+           evalNames $                           
+           mhg3 (fromJust <$> target9) proposal9 (return x)

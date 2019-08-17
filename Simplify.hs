@@ -14,6 +14,7 @@ monadRightId p@(Do (v :<~ m) (Dirac e))
                                Just Refl -> monadRightId m
                                Nothing   -> error $ "Could not apply monadRightId to " ++ show p
 monadRightId (Do g m') = Do g $ monadRightId m'
+monadRightId (MPlus m m') = MPlus (monadRightId m) (monadRightId m')
 monadRightId p' = p'                  
 
 type Binding = (Var, Term 'HReal)    
