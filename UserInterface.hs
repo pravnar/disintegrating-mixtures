@@ -126,6 +126,23 @@ mhg target propK p =
                          dirac $ if_ (less u (min_ (Real 1) (ratio2Real r))) q p
                Nothing    -> error "mhg: greensRatio failed"
 
+mhgWithLets :: (Sing b, Inferrable b)
+    => Term ('HMeasure b)
+    -> (Term b -> CH (Term ('HMeasure b)))
+    -> Term b
+    -> CH (Term ('HMeasure b))
+mhgWithLets target propK p =
+    do proposal <- propK p
+       bind proposal $ \q ->
+           case greensRatio target propK (Pair p q) of
+             Just ratio -> letinl (Inl (ratio2Real ratio)
+                                  :: Term ('HEither 'HReal 'HReal)) $ \r ->
+                           letinl (Inl (min_ (Real 1) r)
+                                  :: Term ('HEither 'HReal 'HReal)) $ \a ->
+                           bind (bern_ a) $ \b ->
+                           dirac $ if_ b q p
+             Nothing    -> error "mhgWithLets: greensRatio failed"
+
 -- | Use unrestricted density to calculate MHG acceptance ratio
 greensRatio :: (Sing b, Inferrable b)
             => Term ('HMeasure b)
