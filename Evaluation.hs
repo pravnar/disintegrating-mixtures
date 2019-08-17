@@ -5,6 +5,9 @@ module Evaluation where
 import UserInterface
 import Syntax
 import Helpers
+import Simplify
+
+import Data.Maybe    
 
 -- | Evaluation 1: density of clamped standard normal
 -----------------------------------------------------
@@ -80,7 +83,7 @@ eval4 = let sampler = do target <- target4
                          proposal <- clampedStdNorm
                          importance target proposal
                       -- ^^^^^^^^^^ defined in UserInterface.hs
-        in print $ evalNames sampler
+        in print . evalNames . shareClampedM $ evalNames sampler
                     
 
 -- | Evaluation 5a: MH-sampling using single-site proposals
@@ -221,3 +224,37 @@ gibbs p = do model23 <- obs23
                            
 eval7 :: IO ()
 eval7 = print $ evalNames $ gibbs $ Pair (Real 1.1) $ Pair (Real 1.2) (Real 1.3)
+
+        
+-- | Evaluation 8: Single-site MH for Gaussian Mixture Model
+------------------------------------------------------------
+
+gmm :: CH (Term ('HMeasure ('HPair R2 R2)))
+gmm = bind meandist1 $ \mu1 ->
+      bind meandist2 $ \mu2 ->
+      bind faircoin  $ \b1 ->
+      bind faircoin  $ \b2 ->
+      bind (mixture b1 mu1 mu2) $ \p1 ->
+      bind (mixture b2 mu1 mu2) $ \p2 ->
+      dirac $ Pair (Pair p1 p2) (Pair mu1 mu2)
+    where meandist1 = Normal (Real 2) (Real 3)
+          meandist2 = Normal (Real 5) (Real 3)
+          faircoin = bern_ (Real 0.5)
+          mixture b c1 c2 = if_ b (Normal c1 (Real 1)) (Normal c2 (Real 1))
+
+target8 :: Maybe (Term ('HMeasure R2))
+target8 = do let t = Pair (Real 0.1) (Real 0.2)
+                 m = monadRightId $ evalNames gmm
+             b <- principalBase m t
+             condition m b t
+
+-- TODO: investigate
+-- Why does changing x from actual numbers to a variable (Var (V "curr_x"))
+-- break the program with the "Unequal types of associated terms..." error?
+eval8 :: IO ()
+eval8 = let x = Pair (Real 0.1) (Real 0.2)
+        in print $
+           monadRightId $
+           evalNames $
+           mhgWithLets (fromJust target8) proposal5a x
+                                       -- ^^^^^^^^^^ single-site
