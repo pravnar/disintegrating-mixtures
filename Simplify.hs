@@ -15,11 +15,18 @@ monadRightId p@(Do (v :<~ m) (Dirac e))
                                Nothing   -> error $ "Could not apply monadRightId to " ++ show p
 monadRightId (Do g m') = Do g $ monadRightId m'
 monadRightId (MPlus m m') = MPlus (monadRightId m) (monadRightId m')
-monadRightId p' = p'                  
+monadRightId p' = p'
+
+mplusId :: Term ('HMeasure a) -> Term ('HMeasure a)
+mplusId (MPlus m m') = mplus_ m m'
+mplusId (Do (x :<~ m) m') = (Do (x :<~ mplusId m) $ mplusId m')
+mplusId (Do g m) = (Do g $ mplusId m)
+mplusId (Dirac (Total m)) = Dirac (Total $ mplusId m)
+mplusId p = p
 
 type Binding = (Var, Term 'HReal)    
 
--- | Unfinished / incorrect    
+-- | Unfinished / incorrect
 dedupCond :: (Eq (Term a)) => Term a -> [Binding] -> CH (Term a, [Binding])
 dedupCond p@(If (Less c c') e e') inputs = do  
   addVarsIn p

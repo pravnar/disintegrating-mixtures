@@ -110,8 +110,8 @@ constrainOutcome e b t c h = track "constrainOutcome" st $ (<<|) e b t c h
 (<<|) (Normal mu sd) b t c h = divide Lebesgue_ b t >>= emit # 
                                (c (store (Factor $ normalDensity mu sd t) h))
 (<<|) (Do g m)       b t c h = constrainOutcome m b t c (store g h)
-(<<|) (MPlus m m')   b t c h = liftM2 MPlus (constrainOutcome m  b t c h)
-                                            (constrainOutcome m' b t c h)
+(<<|) (MPlus m m')   b t c h = liftM2 mplus_ (constrainOutcome m  b t c h)
+                                             (constrainOutcome m' b t c h)
 (<<|) (If ce mt me)  b t c h = let m = mplus_ (when_ ce mt) (unless_ ce me)
                                in constrainOutcome m b t c h
 (<<|) Fail           _ _ _ _ = return Fail
@@ -147,12 +147,12 @@ constrainValue e b t c h = track "constrainValue" st $ (<|) e b t c h
 (<|) (Recip e)  b t c h = constrainInv Recip_ b e t c h
 (<|) (Exp e)    b t c h = constrainInv Exp_ b e t c h
 (<|) (Log e)    b t c h = constrainInv Log_ b e t c h
-(<|) (Abs e)    b t c h = liftM2 MPlus (constrainInv Abs_Pos b e t c h)
-                                       (constrainInv Abs_Neg b e t c h)
-(<|) (Sqrt e)   b t c h = liftM2 MPlus (constrainInv Sqrt_Pos b e t c h)
-                                       (constrainInv Sqrt_Neg b e t c h)
-(<|) (Square e) b t c h = liftM2 MPlus (constrainInv Square_Pos b e t c h)
-                                       (constrainInv Square_Neg b e t c h)
+(<|) (Abs e)    b t c h = liftM2 mplus_ (constrainInv Abs_Pos b e t c h)
+                                        (constrainInv Abs_Neg b e t c h)
+(<|) (Sqrt e)   b t c h = liftM2 mplus_ (constrainInv Sqrt_Pos b e t c h)
+                                        (constrainInv Sqrt_Neg b e t c h)
+(<|) (Square e) b t c h = liftM2 mplus_ (constrainInv Square_Pos b e t c h)
+                                        (constrainInv Square_Neg b e t c h)
 (<|) (Add e e') b t c h = lub (evaluate e  (\v  -> constrainInv (Add_ v)  b e' t c) h)
                               (evaluate e' (\v' -> constrainInv (Add_ v') b e  t c) h)
 (<|) (Mul e e') b t c h = lub (evaluate e  (\v  -> constrainInv (Mul_ v)  b e' t c) h)
@@ -216,7 +216,7 @@ perform e k h = track "perform" st $ (|>>) e k h
 (|>>) (Normal mu sd) k h = flip (evaluate mu) h $ \v -> evaluate sd $ \v' h' ->
                            freshVar "n" >>= \z -> emit [z :<~ Normal v v'] (k (Var z) h')
 (|>>) (Do g m)       k h = perform m k (store g h)
-(|>>) (MPlus m m')   k h = liftM2 MPlus (perform m k h) (perform m' k h)
+(|>>) (MPlus m m')   k h = liftM2 mplus_ (perform m k h) (perform m' k h)
 (|>>) (If c mt me)   k h = perform (mplus_ (when_ c mt) (unless_ c me)) k h
 (|>>) Fail           _ _ = return Fail
 (|>>) e              k h =
