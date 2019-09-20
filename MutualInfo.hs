@@ -10,6 +10,7 @@ import Hakaru
 
 import qualified Language.Hakaru.Simplify as S
 import qualified Language.Hakaru.Expect as E
+import qualified Language.Hakaru.Sample as Sam
 import qualified Language.Hakaru.Pretty.Concrete as PC
 import qualified Language.Hakaru.Syntax.Prelude as HP
 import qualified Language.Hakaru.Syntax.AST as AST
@@ -63,14 +64,40 @@ test1 = do let obs = V "t"
                numH = toHakaruLam (TS.sPair TS.SReal TS.SReal) num
                denH = toHakaruLam (TS.sPair TS.SReal TS.SReal) denom
                one = HP.literal_ $ AST.LReal 1
+               two = HP.literal_ $ AST.LReal 2
+               three = HP.literal_ $ AST.LReal 3
                app11 = \e -> HP.app e (HP.pair one one)
+               app21 = \e -> HP.app e (HP.pair two one)
+               app22 = \e -> HP.app e (HP.pair two two)
+               app23 = \e -> HP.app e (HP.pair two three)
+               app33 = \e -> HP.app e (HP.pair three three)
            -- numSimpl <- S.simplifyDebug False 30 numH
            -- print $ PC.pretty numSimpl
-           let numTotal = E.total $ app11 numH -- calculate the total
+           let numTotal = E.total $ app33 numH -- calculate the total
                                                -- mass of a measure
                                                -- (using integration)
-               denTotal = E.total $ app11 denH
+               denTotal = E.total $ app33 denH
+           print $ PC.pretty numTotal
+           putStrLn "---------------"
+           print $ PC.pretty denTotal           
            numTotalSimpl <- S.simplifyDebug False 30 numTotal
            denTotalSimpl <- S.simplifyDebug False 30 denTotal
            print $ PC.pretty numTotalSimpl
            print $ PC.pretty denTotalSimpl
+           print $ Sam.runEvaluate (numTotalSimpl HP./ denTotalSimpl)
+
+test2 :: IO ()
+test2 = do let obs = V "t"
+               Just (num,denom) = densMI gao (Var obs)
+               numH = toHakaruLam (TS.sPair TS.SReal TS.SReal) num
+               denH = toHakaruLam (TS.sPair TS.SReal TS.SReal) denom
+               r = 5
+               points = [(x,y) | x <- [-r..r], y <- [-r..r]]
+               toLit = HP.literal_ . AST.LReal
+               appXYs = map (\(x,y) -> \e -> HP.app e $ HP.pair (toLit x) (toLit y)) points
+               numTotals = map (\f -> E.total $ f numH) appXYs
+               denTotals = map (\f -> E.total $ f denH) appXYs
+           numTotalSimpls <- mapM (S.simplifyDebug False 30) numTotals
+           denTotalSimpls <- mapM (S.simplifyDebug False 30) denTotals
+           let ratios = map (\(n,d) -> Sam.runEvaluate (n HP./ d)) $ zip numTotalSimpls denTotalSimpls
+           print $ zip (map (\(x,y) -> (fromRational x, fromRational y)) points) ratios
