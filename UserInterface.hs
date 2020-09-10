@@ -6,11 +6,16 @@ import Syntax
 import Pretty
 import Helpers
 import Disintegrate
+import Hakaru
 
+import qualified Language.Hakaru.Expect as E
+import qualified Language.Hakaru.Syntax.Prelude as HP
+import qualified Language.Hakaru.Types.DataKind as DK
 import Control.Monad.State
 import           Text.PrettyPrint hiding (parens)
 import qualified Text.PrettyPrint as PP (parens)
 import System.Process (callCommand)
+import Debug.Trace    
 
 
 -- | Visualizing all outputs of disintegration
@@ -22,7 +27,9 @@ check prog base = putStrLn $ format (title prog base t) (disintegrate prog base 
     where t = Var obs
 
 -- | Print (all of) the output(s) of base inference
-infer :: (Sing a, Sing b, Inferrable a) => Term ('HMeasure ('HPair a b)) -> Term a -> Trace (Term ('HMeasure b), Base a)
+infer :: (Sing a, Sing b, Inferrable a)
+      => Term ('HMeasure ('HPair a b))
+      -> Term a -> Trace (Term ('HMeasure b), Base a)
 infer prog t = let b      = fst (base 0) []
                    anss   = disintegrate prog b t
                    initState e = (Names 0 (varsIn e), [])
@@ -44,24 +51,33 @@ condition m b = choosePosterior (disintegrate m b)
 
 -- | Infer a single base measure (left-most in the disintegration trace) 
 principalBase :: (Sing a, Sing b, Inferrable a)
-              => Term ('HMeasure ('HPair a b)) -> Term a -> Maybe (Base a)
-principalBase m t = fromTrace (infer m t) >>= return . snd
+              => String
+              -> Term ('HMeasure ('HPair a b)) -> Term a -> Maybe (Base a)
+principalBase msg m t = debugFromTrace ("principalBase " ++ msg) (infer m t) >>= return . snd
 
 -- | Get all the inferred bases as a Trace
 allBases :: (Sing a, Sing b, Inferrable a)
          => Term ('HMeasure ('HPair a b)) -> Term a -> Trace (Base a)
 allBases m t = fmap snd $ infer m t
 
-fromTrace :: Trace a -> Maybe a
+debugFromTrace :: (ErrorCheckable a) => String -> Trace a -> Maybe a
+debugFromTrace msg t = trace (msg) $ fromTrace t
+
+--                       (show $ fmap (\_ -> ()) t)
+
+fromTrace :: (ErrorCheckable a) => Trace a -> Maybe a
 fromTrace Bot        = Nothing
-fromTrace (Return a) = Just a
+fromTrace (Return a) = if (not $ checkForError a) then Just a else Nothing
 fromTrace (Step _ t) = fromTrace t
 fromTrace (Lub t t') = case fromTrace t of
                          Just a  -> Just a
                          Nothing -> fromTrace t'
 
-choosePosterior :: (Term a -> Trace (Term ('HMeasure b), c)) -> Term a -> Maybe (Term ('HMeasure b))
-choosePosterior tracekern t = fromTrace (tracekern t) >>= return . fst
+choosePosterior :: (ErrorCheckable c)
+                => (Term a -> Trace (Term ('HMeasure b), c))
+                -> Term a
+                -> Maybe (Term ('HMeasure b))
+choosePosterior tracekern t = debugFromTrace "choose " (tracekern t) >>= return . fst
                               
 
 -- | Unrestricted density calculator
@@ -72,8 +88,8 @@ choosePosterior tracekern t = fromTrace (tracekern t) >>= return . fst
 density :: (Sing a, Inferrable a)
         => Term ('HMeasure a) -> Term ('HMeasure a) -> Term a -> Maybe Ratio
 density m n t = do let (m',n') = withDiffNames (pairWithUnit m) (pairWithUnit n)
-                   bm <- principalBase m' t
-                   bn <- principalBase n' t
+                   bm <- principalBase "density bm " m' t
+                   bn <- principalBase "density bn " n' t
                    let b = bplusExt bm bn                       
                    d1 <- choosePosterior (disintegrate m' b) t
                    d2 <- choosePosterior (disintegrate n' b) t
@@ -169,6 +185,20 @@ greensRatio target proposal = let (m,mrev) = evalNames $
                                                 mrev <- liftMeasure switch m
                                                 return (m,mrev)
                               in density mrev m
+
+justTheRatio :: (Sing b, Inferrable b)
+             => CH (Term ('HMeasure b))
+             -> (Term b -> CH (Term ('HMeasure b)))
+             -> CH (Term b)
+             -> CH (Term ('HMeasure 'HReal))
+justTheRatio tar propK currState =
+    do x <- currState
+       target <- tar
+       proposal <- propK x
+       bind proposal $ \y ->
+           case greensRatio target propK (Pair x y) of
+             Just r -> dirac $ ratio2Real r
+             Nothing -> error "justTheRatio: greensRatio failed"
 
 switch :: (Sing a, Sing b) => Term ('HPair a b) -> Term ('HPair b a)
 switch p = Pair (scnd p) (frst p)

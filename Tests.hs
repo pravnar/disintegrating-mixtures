@@ -25,13 +25,28 @@ normTest = Do (n :<~ stdNormal)
               (Dirac (Pair (Var n) Unit))
     where n = V "n"
 
-unitCircle :: Model 'HReal 'HUnit
-unitCircle = do_ [ x :<~ stdNormal
-                 , y :<~ stdNormal ]
-                 (Dirac (Pair (Sqrt (Add (Square (Var x))
-                                         (Square (Var y))))
-                              Unit))
+radius :: Model 'HReal 'HUnit
+radius = do_ [ x :<~ stdNormal
+             , y :<~ stdNormal ]
+             (Dirac (Pair (Sqrt (Add (Square (Var x))
+                                     (Square (Var y))))
+                          Unit))
     where (x,y) = (V "x", V "y")
+
+unitCircle :: Term ('HMeasure ('HPair 'HReal 'HReal))
+unitCircle = do_ [ x :<~ Lebesgue
+                 , y :<~ Lebesgue
+                 , observe (Equal (Add (Square (Var x))
+                                       (Square (Var y)))
+                                  (Real 1)) ]
+             (Dirac (Pair (Var x) (Var y)))
+    where (x,y) = (V "x", V "y")
+
+axch :: Model ('HPair 'HReal 'HReal) 'HUnit
+axch = Do (xy :<~ unitCircle)
+          (Dirac (Pair (f (Var xy)) Unit))
+    where xy = V "xy"
+          f p = Pair (Mul (Real 2) (Fst p)) (Mul (Real 20) (Snd p))
                     
 gaussMix :: Model 'HReal ('HPair 'HReal 'HReal)
 gaussMix = Do (mu1 :<~ stdNormal)

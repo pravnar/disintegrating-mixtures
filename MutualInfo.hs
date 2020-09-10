@@ -59,10 +59,11 @@ densMI nm = let (mu,nu) = evalNames (do mu <- nm
 -- to experiment with applying algebraic simplifications provided by
 -- the mainline system
 test1 :: IO ()
-test1 = do let obs = V "t"
+test1 = do let nm = "t"
+               obs = V nm
                Just (num,denom) = densMI gao (Var obs)
-               numH = toHakaruLam (TS.sPair TS.SReal TS.SReal) num
-               denH = toHakaruLam (TS.sPair TS.SReal TS.SReal) denom
+               numH = toHakaruLam (TS.sPair TS.SReal TS.SReal) nm num
+               denH = toHakaruLam (TS.sPair TS.SReal TS.SReal) nm denom
                one = HP.literal_ $ AST.LReal 1
                two = HP.literal_ $ AST.LReal 2
                three = HP.literal_ $ AST.LReal 3
@@ -87,10 +88,11 @@ test1 = do let obs = V "t"
            print $ Sam.runEvaluate (numTotalSimpl HP./ denTotalSimpl)
 
 test2 :: IO ()
-test2 = do let obs = V "t"
+test2 = do let nm = "t"
+               obs = V nm
                Just (num,denom) = densMI gao (Var obs)
-               numH = toHakaruLam (TS.sPair TS.SReal TS.SReal) num
-               denH = toHakaruLam (TS.sPair TS.SReal TS.SReal) denom
+               numH = toHakaruLam (TS.sPair TS.SReal TS.SReal) nm num
+               denH = toHakaruLam (TS.sPair TS.SReal TS.SReal) nm denom
                r = 5
                points = [(x,y) | x <- [-r..r], y <- [-r..r]]
                toLit = HP.literal_ . AST.LReal

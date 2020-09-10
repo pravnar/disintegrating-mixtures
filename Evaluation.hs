@@ -6,8 +6,13 @@ import UserInterface
 import Syntax
 import Helpers
 import Simplify
+import Hakaru    
 
-import Data.Maybe    
+import Data.Maybe
+import Debug.Trace    
+
+import qualified Language.Hakaru.Simplify as S
+import qualified Language.Hakaru.Pretty.Haskell as PH
 
 -- | Evaluation 1: density of clamped standard normal
 -----------------------------------------------------
@@ -229,24 +234,27 @@ eval7 = print $ evalNames $ gibbs $ Pair (Real 1.1) $ Pair (Real 1.2) (Real 1.3)
 -- | Evaluation 8: Single-site MH for Gaussian Mixture Model
 ------------------------------------------------------------
 
-gmm :: CH (Term ('HMeasure ('HPair R2 R2)))
+type B2 = 'HPair HBool HBool
+type R2B2 = 'HPair R2 B2    
+
+gmm :: CH (Term ('HMeasure ('HPair R2B2 R2)))
 gmm = bind meandist1 $ \mu1 ->
       bind meandist2 $ \mu2 ->
       bind faircoin  $ \b1 ->
       bind faircoin  $ \b2 ->
       bind (mixture b1 mu1 mu2) $ \p1 ->
       bind (mixture b2 mu1 mu2) $ \p2 ->
-      dirac $ Pair (Pair p1 p2) (Pair mu1 mu2)
+      dirac $ Pair (Pair (Pair p1 p2) (Pair b1 b2)) (Pair mu1 mu2)
     where meandist1 = Normal (Real 2) (Real 3)
           meandist2 = Normal (Real 5) (Real 3)
           faircoin = bern_ (Real 0.5)
           mixture b c1 c2 = if_ b (Normal c1 (Real 1)) (Normal c2 (Real 1))
 
-target8 :: Maybe (Term ('HMeasure R2))
-target8 = do let t = Pair (Real 0.1) (Real 0.2)
-                 m = monadRightId $ evalNames gmm
-             b <- principalBase m t
-             condition m b t
+target8 :: CH (Maybe (Term ('HMeasure R2)))
+target8 = do let t = Pair (Pair (Real 0.1) (Real 0.2)) (Pair true_ false_)
+             m <- monadRightId <$> gmm
+             return $ do b <- principalBase "target8 " m t
+                         condition m b t
 
 -- TODO: investigate
 -- Why does changing x from actual numbers to a variable (Var (V "curr_x"))
@@ -256,12 +264,12 @@ eval8 = let x = Pair (Real 0.1) (Real 0.2)
         in print $
            monadRightId $
            evalNames $
-           mhgWithLets (fromJust target8) proposal5a x
+           mhg3 (fromJust <$> target8) proposal5a (return x)
                                        -- ^^^^^^^^^^ single-site
 
 -- See what base measure we deal with to calculate Green's ratio
 peek8 :: IO ()
-peek8 = let m    = bindx (fromJust target8) proposal5a
+peek8 = let m    = fromJust <$> target8 >>= \t -> bindx t proposal5a
             mrev = m >>= liftMeasure switch
             m'   = m >>= pairWithUnit
             mrev'= mrev >>= pairWithUnit
@@ -272,6 +280,31 @@ peek8 = let m    = bindx (fromJust target8) proposal5a
                       Pair (Pair (Real 0.37) (Real 0.42))
                            (Pair (Real 0.39) (Real 0.19))
 
+ratio8 :: IO ()
+ratio8 = do let x = Pair (Real 0.37) (Real 0.42)
+                y = Pair (Real 0.37) (Real 0.19)
+                Just (n,d) = evalNames $
+                             do t <- target8
+                                return $ greensRatio (fromJust t) proposal5a (Pair x y)
+            putStrLn "----denominator-------"
+            print d
+            denomSimplWithoutTotal <- S.simplifyDebug False 30 (translate d)
+            putStrLn "----denominator simplified------"
+            print $ PH.pretty denomSimplWithoutTotal
+            denomSimplWithTotal <- S.simplifyDebug False 30 (translate $ Total d)
+            putStrLn "----denominator simplified after total------"
+            print $ PH.pretty denomSimplWithTotal
+            ratioSimpl <- S.simplifyDebug False 30 (translate $ ratio2Real (n,d))
+            putStrLn "----ratio simplified------"
+            print $ PH.pretty ratioSimpl
+
+ratio8Symbolic :: IO ()
+ratio8Symbolic = do let nm = "some_unused_name"
+                        xy = V nm
+                        mayberatio = evalNames $
+                                     do t <- target8
+                                        return $ greensRatio (fromJust t) proposal5a (Var xy)
+                    print $ isJust mayberatio
 
 -- | Evaluation 9: Reversible-jump MH for Finite Mixture Model
 --------------------------------------------------------------
@@ -315,7 +348,7 @@ fmm = do let s = Real 0.1
 target9 :: CH (Maybe (Term ('HMeasure FM)))
 target9 = do m <- monadRightId <$> fmm
              let t = Real 0.43 -- (Var obs)
-             return $ do b <- principalBase m t
+             return $ do b <- principalBase "target9 " m t
                          condition m b t
 
 -- Moment matching with split-merge moves
@@ -325,13 +358,18 @@ proposal9 p = do let s = Real 0.1
                  m1 <- letinl p $ \x ->
                        bind (Dirac (frst x)) $ \mu ->
                        bind (Dirac (scnd x)) $ \v  ->
-                       stdUniform >>= \unif ->
-                       bind unif $ \u  ->
-                       bind unif $ \u' ->
-                       bind (Normal mu (u `mul` (sqrroot $ double v))) $ \mu1 ->
-                       bind (Normal mu (u `mul` (sqrroot $ double v))) $ \mu2 -> 
-                       bind (Normal (Real 0) (u'                    `mul` ((Real 1) `minus` (square u)) `mul` v)) $ \v1 ->
-                       bind (Normal (Real 0) (((Real 1) `minus` u') `mul` ((Real 1) `minus` (square u)) `mul` v)) $ \v2 ->
+                       stdUniform >>= \unif1 ->
+                       stdUniform >>= \unif1' ->
+                       stdUniform >>= \unif2 ->
+                       stdUniform >>= \unif2' ->
+                       bind unif1 $ \u1  ->
+                       bind unif1' $ \u1' ->
+                       bind unif2 $ \u2 ->
+                       bind unif2' $ \u2' ->
+                       bind (Dirac (mu `minus` (u1 `mul` (sqrroot v)))) $ \mu1 ->
+                       bind (Dirac (mu `add`   (u2 `mul` (sqrroot v)))) $ \mu2 -> 
+                       bind (Dirac (                  u1'  `mul` ((Real 1) `minus` (square u1)) `mul` (double v))) $ \v1 ->
+                       bind (Dirac (((Real 1) `minus` u2') `mul` ((Real 1) `minus` (square u2)) `mul` (double v))) $ \v2 ->
                        dirac $ Inr $ Pair (Pair mu1 v1) (Pair mu2 v2)
                  m2 <- letinr p $ \x ->
                        bind (Dirac (frst x)) $ \muv1 ->
@@ -341,7 +379,7 @@ proposal9 p = do let s = Real 0.1
                        bind (Dirac (frst muv2)) $ \mu2 ->
                        bind (Dirac (scnd muv2)) $ \v2 ->
                        bind (Normal ((Real 0.5) `mul` (mu1 `add` mu2)) s) $ \mu ->
-                       bind (Normal ((Real 0.5) `mul` ((square mu1 `add` v1) `add` (square mu2 `add` v2))) s) $ \v ->
+                       bind (Normal ((Real 0.25) `mul` (square $ mu1 `minus` mu2) `add` (Real 0.5) `mul` (square v1 `add` square v2)) s) $ \v ->
                        dirac $ Inl $ Pair mu v
                  return $ monadRightId $ mplus_ m1 m2
 
@@ -352,3 +390,35 @@ eval9 = let x = Inl (Pair (Real 2) (Real 3))
            monadRightId $
            evalNames $                           
            mhg3 (fromJust <$> target9) proposal9 (return x) -- (Var <$> freshVar "currX")
+
+-- See what base measure we deal with to calculate Green's ratio
+peek9 :: IO ()
+peek9 = let m    = fromJust <$> target9 >>= \t -> bindx t proposal9
+            mrev = m >>= liftMeasure switch
+            m'   = m >>= pairWithUnit
+            mrev'= mrev >>= pairWithUnit
+            x  = Inl (Pair (Real 2) (Real 3))
+            x' = Inr (Pair (Pair (Real 1) (Real 5))
+                           (Pair (Real 3) (Real 7)))
+        in do print $ allBases (evalNames m') (Pair x x')
+              putStrLn "-----"
+              print $ allBases (evalNames mrev') (Pair x' x)
+              putStrLn "-----"
+              print $ allBases (evalNames m') (Pair x x)
+
+ratio9 :: IO ()
+ratio9 = do let x = Inl (Pair (Real 2) (Real 3))
+                y = Inr (Pair (Pair (Real 1) (Real 2))
+                              (Pair (Real 5) (Real 7)))
+                Just (n,d) = evalNames $
+                             do t <- target9
+                                return $ greensRatio (fromJust t) proposal9 (Pair x y)
+            print d
+            -- putStrLn "demarcation after core Hakaru"
+            -- print . translate $ d            
+            -- putStrLn "demarcation before total"
+            -- print . translate $ Total d
+            putStrLn "demarcation before simplify without total"
+            denomSimplWithoutTotal <- S.simplifyDebug False 30 (translate d)
+            -- print denomSimplWithoutTotal
+            print $ PH.pretty denomSimplWithoutTotal

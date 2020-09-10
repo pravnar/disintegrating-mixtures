@@ -5,6 +5,7 @@
 
 module Hakaru where
 
+import qualified Language.Hakaru.Expect as E
 import qualified Language.Hakaru.Syntax.ABT as ABT
 import qualified Language.Hakaru.Syntax.AST as AST
 import qualified Language.Hakaru.Syntax.Datum as SD
@@ -19,7 +20,7 @@ import qualified Data.Number.Nat as NN
 import qualified Control.Monad as CM
 import qualified Control.Monad.State as S
 import Helpers
-import Tests    
+-- import Tests    
 import Unsafe.Coerce (unsafeCoerce)
 
 import Syntax
@@ -78,6 +79,7 @@ toHakaru (Equal e e') =
                                            (toHakaru e)
                                            (toHakaru e')
       Nothing -> error $ "toHakaru: no defn of hEq"
+toHakaru (Less e e') = boolToUnit <$> CM.liftM2 (HP.<) (toHakaru e) (toHakaru e')
 toHakaru (Or e e') = boolToUnit <$> CM.liftM2 (HP.||) (toHakaruBool e) (toHakaruBool e')
 toHakaru Unit = return HP.unit
 toHakaru t@(Pair e e') = let (sa,sb) = TS.sUnPair (toHSing $ typeOf t)
@@ -121,6 +123,7 @@ toHakaru t@(Var v) = do vm <- S.get
                         return $ ABT.var $ SV.Variable (Text.pack (name v)) id (toHSing (typeOf t))
 toHakaru (Jacobian _ _ _) = error "toHakaru: no defn for Jacobian"
 toHakaru (Error _) = error "toHakaru: no defn for Error"
+toHakaru (Total m) = HP.fromProb . E.total <$> toHakaru m
 toHakaru e = error ("toHakaru: unknown term " ++ show e)
 
 toHakaruBool :: TermHBool -> S.State VarIDMap (HakaruTerm DK.HBool)
@@ -152,11 +155,11 @@ translate t = S.evalState (toHakaru t) []
 -- TODO: fix this. Currently wrong because there is a mismatch of
 -- varIDs, between the "t" in the binding position and the "t"s in use
 -- positions.
-toHakaruLam :: TS.Sing a -> Term b -> HakaruTerm (a DK.:-> HType b)
-toHakaruLam s e = let (e',vm) = S.runState (toHakaru e) []
-                      obs = V "t"
-                      v = SV.Variable (Text.pack (name obs)) (nextID vm) s
-                  in ABT.syn (AST.Lam_ AST.:$ ABT.bind v e' AST.:* AST.End)
+toHakaruLam :: TS.Sing a -> String -> Term b -> HakaruTerm (a DK.:-> HType b)
+toHakaruLam s nm e = let (e',vm) = S.runState (toHakaru e) []
+                         obs = V nm
+                         v = SV.Variable (Text.pack (name obs)) (nextID vm) s
+                     in ABT.syn (AST.Lam_ AST.:$ ABT.bind v e' AST.:* AST.End)
 
-test :: IO ()
-test = print $ PC.pretty (S.evalState (toHakaru helloWorld) [])
+-- test :: IO ()
+-- test = print $ PC.pretty (S.evalState (toHakaru helloWorld) [])

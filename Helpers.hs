@@ -189,6 +189,74 @@ instance Eq InScope where
 
 instance Eq (Term a) where
     (==) = jmTermEq
+
+class ErrorCheckable a where
+    checkForError :: a -> Bool
+
+instance ErrorCheckable (Term a) where
+    checkForError = hasErr
+
+instance ErrorCheckable (Base a) where
+    checkForError = baseHasErr
+
+instance ErrorCheckable Constraint where
+    checkForError (b :<: b') = baseHasErr b || baseHasErr b'
+
+instance (ErrorCheckable a, ErrorCheckable b) => ErrorCheckable (a,b) where
+    checkForError (a,b) = checkForError a || checkForError b
+
+instance (ErrorCheckable a) => ErrorCheckable [a] where
+    checkForError = any checkForError
+
+hasErr :: Term a -> Bool
+hasErr Pi = False
+hasErr (Real _) = False
+hasErr (Neg e) = hasErr e
+hasErr (Abs e) = hasErr e
+hasErr (Recip e) = hasErr e
+hasErr (Exp e) = hasErr e
+hasErr (Log e) = hasErr e
+hasErr (Sqrt e) = hasErr e
+hasErr (Square e) = hasErr e
+hasErr (Add e e') = hasErr e || hasErr e'
+hasErr (Mul e e') = hasErr e || hasErr e'
+hasErr (Inl e) = hasErr e
+hasErr (Inr e) = hasErr e
+hasErr (Equal e e') = hasErr e || hasErr e'
+hasErr (Less e e') = hasErr e || hasErr e'
+hasErr (Or e e') = hasErr e || hasErr e'
+hasErr Unit = False
+hasErr (Pair e e') = hasErr e || hasErr e'
+hasErr (Fst e) = hasErr e
+hasErr (Snd e) = hasErr e
+hasErr (If c t e) = hasErr c || hasErr t || hasErr e
+hasErr Fail = False
+hasErr Lebesgue = False
+hasErr (Dirac e) = hasErr e
+hasErr (Normal m s) = hasErr m || hasErr s
+hasErr (Do g m) = guardHasErr g || hasErr m
+hasErr (MPlus m m') = hasErr m || hasErr m'
+hasErr (Var _) = False
+hasErr (Jacobian _ b e) = baseHasErr b || hasErr e
+hasErr (Error _) = True
+hasErr (Total e) = hasErr e
+
+guardHasErr :: Guard v -> Bool
+guardHasErr (_ :<~ e) = hasErr e
+guardHasErr (Factor e) = hasErr e
+guardHasErr (LetInl _ e) = hasErr e
+guardHasErr (LetInr _ e) = hasErr e
+guardHasErr (Divide b b' e) = baseHasErr b || baseHasErr b' || hasErr e
+
+baseHasErr :: Base a -> Bool
+baseHasErr (Var_ _ _) = False
+baseHasErr (LiftB _ b) = baseHasErr b
+baseHasErr Lebesgue_ = False
+baseHasErr (Dirac_ e) = hasErr e
+baseHasErr (Either b b') = baseHasErr b || baseHasErr b'
+baseHasErr (Bindx b f) = baseHasErr b || baseHasErr (f $ Var (V "does not matter"))
+baseHasErr (Mixture _ l) = any hasErr l
+baseHasErr (Error_ _) = True
  
 -- | For the disintegration monad
 ----------------------------------------------------------------------
@@ -954,7 +1022,7 @@ stdUniform :: CH (Term ('HMeasure 'HReal))
 stdUniform = uniform (Real 0) (Real 1)
 
 emptyNames :: Names
-emptyNames = Names 0 empty           
+emptyNames = Names 0 empty 
 
 evalNames :: CH a -> a
 evalNames n = evalState n emptyNames

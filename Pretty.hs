@@ -66,7 +66,7 @@ pretty :: (Pretty a) => a -> Doc
 pretty = pp 0
 
 class Pretty a where
-    pp :: Int -> a -> Doc
+    pp :: Int -> a -> Doc  
 
 instance Pretty Doc where
     pp _ = id
@@ -158,7 +158,10 @@ instance Pretty Invertible where
 
 instance Pretty Bool where
     pp _ True  = text "true"
-    pp _ False = text "false"   
+    pp _ False = text "false"
+
+instance Pretty () where
+    pp _ () = text "()"
 
 instance (Pretty a, Pretty b) => Pretty (a,b) where
     pp _ (a,b) = parens True $ sep [pretty a <> comma, pretty b]
